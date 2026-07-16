@@ -13,6 +13,7 @@ The feature supports:
 - Three selectable visual styles plus a random mode.
 - Synchronized playback on every connected display.
 - Optional sound, disabled by default.
+- An effect preview action that does not change milestone tracking state.
 - Abstract Chinese internet meme copy with occasional English phrases.
 - Daily deduplication and no historical backfill.
 
@@ -32,11 +33,23 @@ Available values:
 - Retro Game Achievement
 - Random
 
-The default is Cinematic Fireworks. Random mode selects one of the three styles independently for each milestone. All displays use the same selected style for one celebration.
+The default is Off. Users must explicitly enable a fixed style or Random mode. Random mode selects one of the three styles independently for each milestone. All displays use the same selected style for one celebration.
 
 ### Sound
 
 “播放彩蛋音效” is a separate toggle. It defaults to off. When enabled, one short sound plays per milestone regardless of the number of connected displays.
+
+### Preview
+
+The settings section includes a “预览效果” button.
+
+- Preview is available whenever a visual style other than Off is selected, even before settings are saved.
+- Preview uses a synthetic 50M Token milestone and built-in meme copy.
+- Preview plays on every currently connected display using the selected style.
+- Random mode chooses one style for the preview session and uses it on all displays.
+- Preview follows the current sound toggle. Sound still plays only once.
+- Preview never reads, updates, consumes, or persists real milestone tracker state.
+- Repeated clicks while a preview is active are ignored.
 
 ## Milestone Rules
 
@@ -151,6 +164,8 @@ Persists and restores the non-secret daily tracker state through application pre
 
 Receives milestone events, chooses the configured visual style and meme copy, creates one celebration session, and ensures sound plays only once. It ignores a new event while an existing celebration is active rather than stacking overlays.
 
+It also exposes a separate preview operation that constructs a synthetic 50M session without calling or mutating `MilestoneTracker` or `MilestoneStateStore`.
+
 ### CelebrationWindowController
 
 Reads `NSScreen.screens` at playback time and creates one transparent, borderless, non-activating, mouse-transparent window per screen. Every window receives the same session ID, style, milestone, text, and animation start time so playback remains synchronized.
@@ -187,6 +202,7 @@ After a successful Today refresh, `UsageRefreshModel` forwards the new snapshot 
 - Invalid or unavailable Today snapshots do not update the tracker baseline.
 - Disabling celebrations closes any active overlays and prevents further playback.
 - Sound playback failure does not cancel visual playback.
+- Preview failure is shown as a non-blocking settings error and does not alter saved settings.
 
 ## Testing
 
@@ -212,10 +228,13 @@ After a successful Today refresh, `UsageRefreshModel` forwards the new snapshot 
 - Sound plays once for a multi-display celebration.
 - A second milestone does not stack while a celebration is active.
 - Disabling celebrations closes active overlays.
+- Preview constructs a 50M session without reading or writing tracker state.
+- Preview is disabled for Off and ignores repeated clicks while active.
 
 ### Manual Verification
 
 - Test each visual style on one and multiple displays.
+- Test the preview button for each style, Random mode, and sound enabled/disabled.
 - Confirm no mouse or keyboard focus is captured.
 - Confirm the overlay disappears after the documented duration.
 - Confirm display scaling does not clip the headline or meme badge.
@@ -224,4 +243,4 @@ After a successful Today refresh, `UsageRefreshModel` forwards the new snapshot 
 
 ## Completion Criteria
 
-The feature is complete when a user can select or disable a celebration style, optionally enable sound, cross a Token milestone while the app is actively observing Today usage, and see one synchronized non-interactive celebration on every connected display without duplicate or historical playback.
+The feature is complete when celebrations are disabled by default; a user can select a style, preview it without changing milestone state, optionally enable sound, cross a Token milestone while the app is actively observing Today usage, and see one synchronized non-interactive celebration on every connected display without duplicate or historical playback.
