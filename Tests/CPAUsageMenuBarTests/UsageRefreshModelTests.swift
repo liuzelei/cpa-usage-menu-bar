@@ -24,6 +24,7 @@ private actor FakeKeeperAPI: KeeperAPIClientProtocol {
 
     func fetchOverview(configuration: AppConfiguration, credential: String, range: UsageRange) async throws -> UsageSnapshot {
         ranges.append(range)
+        guard !results.isEmpty else { throw AppError.serviceUnavailable }
         return try results.removeFirst().get()
     }
 }
