@@ -157,4 +157,4 @@ scripts/build-app.sh        Release 打包脚本
 
 ## License
 
-本项目暂未附加开源许可证。在复用或分发代码前，请先联系仓库所有者。
+本项目采用 [MIT License](./LICENSE)。
