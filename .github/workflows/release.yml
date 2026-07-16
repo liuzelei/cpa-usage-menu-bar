@@ -9,7 +9,7 @@ on:
       version:
         description: Version used for a validation build
         required: true
-        default: "1.0.0"
+        default: "1.0.1"
 
 permissions:
   contents: write
@@ -19,11 +19,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  test:
     runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: swift test
+
+  package:
+    needs: test
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
     env:
       APP_PATH: dist/CPA Usage.app
-      APP_ARCHS: "arm64 x86_64"
+      APP_ARCHS: ${{ matrix.arch }}
       APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -33,9 +47,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-
-      - name: Run tests
-        run: swift test
 
       - name: Resolve version
         id: version
@@ -51,8 +62,9 @@ jobs:
             print -u2 "Invalid version: $version"
             exit 1
           fi
+          dmg="CPA-Usage-$version-${{ matrix.arch }}.dmg"
           print "version=$version" >> "$GITHUB_OUTPUT"
-          print "archive=CPA-Usage-$version.zip" >> "$GITHUB_OUTPUT"
+          print "dmg=$dmg" >> "$GITHUB_OUTPUT"
 
       - name: Apply version metadata
         shell: zsh {0}
@@ -60,7 +72,7 @@ jobs:
           plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Resources/Info.plist
           plutil -replace CFBundleVersion -string "$GITHUB_RUN_NUMBER" Resources/Info.plist
 
-      - name: Build universal app
+      - name: Build native app
         run: ./scripts/build-app.sh
 
       - name: Import Developer ID certificate
@@ -68,8 +80,8 @@ jobs:
         shell: zsh {0}
         run: |
           set -euo pipefail
-          keychain="$RUNNER_TEMP/release-signing.keychain-db"
-          certificate="$RUNNER_TEMP/developer-id.p12"
+          keychain="$RUNNER_TEMP/release-signing-${{ matrix.arch }}.keychain-db"
+          certificate="$RUNNER_TEMP/developer-id-${{ matrix.arch }}.p12"
           keychain_password="$(uuidgen)$(uuidgen)"
 
           print -rn -- "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
@@ -87,6 +99,7 @@ jobs:
           fi
 
           print "keychain=$keychain" >> "$GITHUB_OUTPUT"
+          print "certificate=$certificate" >> "$GITHUB_OUTPUT"
           print "identity=$identity" >> "$GITHUB_OUTPUT"
 
       - name: Sign application
@@ -98,67 +111,109 @@ jobs:
             "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
-      - name: Submit for notarization
+          archs="$(lipo -archs "$APP_PATH/Contents/MacOS/CPAUsageMenuBar")"
+          [[ "$archs" == "${{ matrix.arch }}" ]]
+
+      - name: Create disk image
+        id: disk_image
         shell: zsh {0}
         run: |
-          notarization_archive="$RUNNER_TEMP/CPA-Usage-notarization.zip"
-          ditto -c -k --keepParent "$APP_PATH" "$notarization_archive"
-          xcrun notarytool submit "$notarization_archive" \
+          dmg="dist/${{ steps.version.outputs.dmg }}"
+          APP_PATH="$APP_PATH" OUTPUT_DMG="$dmg" VOLUME_NAME="CPA Usage" \
+            ./scripts/package-dmg.sh
+          print "dmg=$dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Submit disk image for notarization
+        shell: zsh {0}
+        run: |
+          dmg="${{ steps.disk_image.outputs.dmg }}"
+          xcrun notarytool submit "$dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
 
-      - name: Staple and validate notarization
+      - name: Staple and validate disk image
         shell: zsh {0}
         run: |
-          xcrun stapler staple "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          spctl --assess --type execute --verbose=4 "$APP_PATH"
+          dmg="${{ steps.disk_image.outputs.dmg }}"
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
 
-          [[ "$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Contents/Info.plist")" == "cn.winlio.cpausage" ]]
-          archs="$(lipo -archs "$APP_PATH/Contents/MacOS/CPAUsageMenuBar")"
-          [[ " $archs " == *" arm64 "* ]]
-          [[ " $archs " == *" x86_64 "* ]]
+          mount_dir="$RUNNER_TEMP/mount-${{ matrix.arch }}"
+          mkdir -p "$mount_dir"
+          cleanup_mount() { hdiutil detach "$mount_dir" >/dev/null 2>&1 || true }
+          trap cleanup_mount EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$dmg" >/dev/null
 
-      - name: Package release
-        id: package
-        shell: zsh {0}
-        run: |
-          archive="dist/${{ steps.version.outputs.archive }}"
-          rm -f "$archive" "$archive.sha256"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$archive"
-          shasum -a 256 "$archive" > "$archive.sha256"
-          print "archive=$archive" >> "$GITHUB_OUTPUT"
+          mounted_app="$mount_dir/CPA Usage.app"
+          codesign --verify --deep --strict --verbose=2 "$mounted_app"
+          [[ "$(plutil -extract CFBundleIdentifier raw "$mounted_app/Contents/Info.plist")" == "cn.winlio.cpausage" ]]
+          [[ "$(plutil -extract CFBundleShortVersionString raw "$mounted_app/Contents/Info.plist")" == "${{ steps.version.outputs.version }}" ]]
+          [[ "$(lipo -archs "$mounted_app/Contents/MacOS/CPAUsageMenuBar")" == "${{ matrix.arch }}" ]]
+          [[ -L "$mount_dir/Applications" ]]
+          [[ "$(readlink "$mount_dir/Applications")" == "/Applications" ]]
+
+          cleanup_mount
+          trap - EXIT
+          (cd "${dmg:h}" && shasum -a 256 "${dmg:t}") > "$dmg.sha256"
 
       - name: Upload validation artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CPA-Usage-${{ steps.version.outputs.version }}
+          name: CPA-Usage-${{ steps.version.outputs.version }}-${{ matrix.arch }}
           path: |
-            ${{ steps.package.outputs.archive }}
-            ${{ steps.package.outputs.archive }}.sha256
+            ${{ steps.disk_image.outputs.dmg }}
+            ${{ steps.disk_image.outputs.dmg }}.sha256
           if-no-files-found: error
-
-      - name: Create GitHub Release
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "${{ steps.package.outputs.archive }}" \
-            "${{ steps.package.outputs.archive }}.sha256" \
-            --verify-tag \
-            --generate-notes \
-            --title "CPA Usage $GITHUB_REF_NAME"
 
       - name: Remove temporary credentials
         if: always()
         shell: zsh {0}
         run: |
           keychain="${{ steps.signing.outputs.keychain }}"
+          certificate="${{ steps.signing.outputs.certificate }}"
           if [[ -n "$keychain" && -f "$keychain" ]]; then
             security delete-keychain "$keychain" || true
           fi
-          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/CPA-Usage-notarization.zip"
+          if [[ -n "$certificate" ]]; then
+            rm -f "$certificate"
+          fi
+
+  release:
+    needs: package
+    if: github.ref_type == 'tag'
+    runs-on: macos-15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: CPA-Usage-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate release assets
+        shell: zsh {0}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for arch in arm64 x86_64; do
+            dmg="dist/CPA-Usage-$version-$arch.dmg"
+            [[ -f "$dmg" ]]
+            [[ -f "$dmg.sha256" ]]
+            expected="$(awk '{print $1}' "$dmg.sha256")"
+            actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+            [[ "$actual" == "$expected" ]]
+          done
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/CPA-Usage-*.dmg \
+            dist/CPA-Usage-*.dmg.sha256 \
+            --verify-tag \
+            --generate-notes \
+            --title "CPA Usage $GITHUB_REF_NAME"
