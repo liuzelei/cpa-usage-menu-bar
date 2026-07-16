@@ -30,6 +30,8 @@ hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$dmg" >/dev/null
 [[ "$(readlink "$mount_dir/Applications")" == "/Applications" ]]
 [[ -f "$mount_dir/.VolumeIcon.icns" ]]
 cmp "$mount_dir/.VolumeIcon.icns" "$mount_dir/CPA Usage.app/Contents/Resources/AppIcon.icns"
+volume_attributes="$(GetFileInfo -a "$mount_dir")"
+[[ "$volume_attributes" == *C* ]]
 
 binary="$mount_dir/CPA Usage.app/Contents/MacOS/CPAUsageMenuBar"
 [[ "$(lipo -archs "$binary")" == "$arch" ]]

@@ -18,23 +18,38 @@ if [[ ! -f "$volume_icon" ]]; then
 fi
 
 mkdir -p "${output_dmg:h}"
-staging_dir="$(mktemp -d)"
+work_dir="$(mktemp -d)"
+staging_dir="$work_dir/staging"
+mount_dir="$work_dir/mount"
+read_write_dmg="$work_dir/CPA-Usage-read-write.dmg"
+mounted=0
+mkdir -p "$staging_dir" "$mount_dir"
 
 cleanup() {
-    rm -rf "$staging_dir"
+    if (( mounted )); then
+        hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$work_dir"
 }
 trap cleanup EXIT
 
 ditto "$app_path" "$staging_dir/${app_path:t}"
 cp "$volume_icon" "$staging_dir/.VolumeIcon.icns"
-SetFile -a C "$staging_dir"
 ln -s /Applications "$staging_dir/Applications"
 rm -f "$output_dmg"
 hdiutil create \
     -volname "$volume_name" \
     -srcfolder "$staging_dir" \
     -ov \
-    -format UDZO \
-    "$output_dmg"
+    -format UDRW \
+    "$read_write_dmg"
+
+hdiutil attach -readwrite -nobrowse -mountpoint "$mount_dir" "$read_write_dmg" >/dev/null
+mounted=1
+SetFile -a C "$mount_dir"
+hdiutil detach "$mount_dir" >/dev/null
+mounted=0
+
+hdiutil convert "$read_write_dmg" -format UDZO -o "$output_dmg" >/dev/null
 
 print "Created $output_dmg"
