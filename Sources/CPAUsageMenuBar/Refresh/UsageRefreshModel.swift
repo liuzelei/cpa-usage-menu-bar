@@ -14,7 +14,11 @@ final class UsageRefreshModel: ObservableObject {
     private let credentials: CredentialStoring
     private let api: any KeeperAPIClientProtocol
     private let launchAtLogin: LaunchAtLoginControlling
+    private var milestoneTracker: any MilestoneTracking
+    private let milestoneStateStore: any MilestoneStateStoring
+    private let celebrationCoordinator: any CelebrationCoordinating
     private var timer: Timer?
+    private var celebrationStateRefreshTask: Task<Void, Never>?
     private var snapshots: [UsageRange: UsageSnapshot] = [:]
     private var authenticationSuspended = false
 
@@ -22,14 +26,29 @@ final class UsageRefreshModel: ObservableObject {
         preferences: PreferencesStoring,
         credentials: CredentialStoring,
         api: any KeeperAPIClientProtocol,
-        launchAtLogin: LaunchAtLoginControlling = LaunchAtLoginController()
+        launchAtLogin: LaunchAtLoginControlling = LaunchAtLoginController(),
+        milestoneTracker: (any MilestoneTracking)? = nil,
+        milestoneStateStore: any MilestoneStateStoring = MilestoneStateStore(),
+        celebrationCoordinator: (any CelebrationCoordinating)? = nil
     ) {
         self.preferences = preferences
         self.credentials = credentials
         self.api = api
         self.launchAtLogin = launchAtLogin
+        self.milestoneStateStore = milestoneStateStore
+        if let milestoneTracker {
+            self.milestoneTracker = milestoneTracker
+        } else {
+            var restoredTracker = MilestoneTracker(state: milestoneStateStore.load())
+            restoredTracker.requireBaseline()
+            self.milestoneTracker = restoredTracker
+        }
+        self.celebrationCoordinator = celebrationCoordinator
+            ?? CelebrationCoordinator(presenter: CelebrationWindowController())
         self.configuration = try? preferences.load()
     }
+
+    var isCelebrationPresenting: Bool { celebrationCoordinator.isPresenting }
 
     func start() {
         stop()
@@ -63,6 +82,7 @@ final class UsageRefreshModel: ObservableObject {
             let today = try await api.fetchOverview(configuration: configuration, credential: credential, range: .today)
             snapshots[.today] = today
             todaySnapshot = today
+            observeMilestone(tokens: today.tokens, configuration: configuration)
             if selectedRange == .today {
                 selectedSnapshot = today
             } else {
@@ -87,6 +107,7 @@ final class UsageRefreshModel: ObservableObject {
     }
 
     func validateAndSave(configuration candidate: AppConfiguration, credential candidateCredential: String) async throws {
+        let oldConfiguration = configuration
         let oldCredential = try credentials.read()
         let credential = candidateCredential.isEmpty ? oldCredential : candidateCredential
         guard let credential, !credential.isEmpty else { throw AppError.missingCredential }
@@ -105,6 +126,10 @@ final class UsageRefreshModel: ObservableObject {
         }
 
         configuration = candidate
+        if oldConfiguration?.baseURL != candidate.baseURL
+            || oldConfiguration?.authenticationType != candidate.authenticationType {
+            requireMilestoneBaseline()
+        }
         snapshots = [.today: validated]
         todaySnapshot = validated
         selectedRange = .today
@@ -119,5 +144,47 @@ final class UsageRefreshModel: ObservableObject {
     func retryAuthentication() async {
         authenticationSuspended = false
         await refresh(force: true)
+    }
+
+    func previewCelebration(style: CelebrationStyle, soundEnabled: Bool) {
+        celebrationCoordinator.preview(style: style, soundEnabled: soundEnabled)
+        refreshCelebrationPresentationState(after: 5.1)
+    }
+
+    func requireMilestoneBaseline() {
+        milestoneTracker.requireBaseline()
+        if let state = milestoneTracker.state {
+            try? milestoneStateStore.save(state)
+        }
+    }
+
+    private func observeMilestone(tokens: Int64, configuration: AppConfiguration) {
+        let identity = MilestoneIdentity(
+            baseURL: configuration.baseURL.absoluteString,
+            authenticationType: configuration.authenticationType
+        )
+        let milestone = milestoneTracker.observe(
+            tokens: tokens,
+            date: Date(),
+            identity: identity,
+            calendar: .current
+        )
+        if let state = milestoneTracker.state {
+            try? milestoneStateStore.save(state)
+        }
+        if let milestone {
+            celebrationCoordinator.celebrate(milestone, configuration: configuration)
+            refreshCelebrationPresentationState(after: 5.1)
+        }
+    }
+
+    private func refreshCelebrationPresentationState(after duration: TimeInterval) {
+        objectWillChange.send()
+        celebrationStateRefreshTask?.cancel()
+        celebrationStateRefreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.objectWillChange.send()
+        }
     }
 }

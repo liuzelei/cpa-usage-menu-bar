@@ -8,7 +8,15 @@ protocol CelebrationPresenting: AnyObject {
 }
 
 @MainActor
-final class CelebrationCoordinator {
+protocol CelebrationCoordinating: AnyObject {
+    var isPresenting: Bool { get }
+    func celebrate(_ milestone: TokenMilestone, configuration: AppConfiguration)
+    func preview(style: CelebrationStyle, soundEnabled: Bool)
+    func dismiss()
+}
+
+@MainActor
+final class CelebrationCoordinator: CelebrationCoordinating {
     private let presenter: any CelebrationPresenting
     private let soundPlayer: any CelebrationSoundPlaying
     private let copyProvider: any MemeCopyProviding

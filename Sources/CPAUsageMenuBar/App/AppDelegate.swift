@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var model: UsageRefreshModel!
     private var cancellables = Set<AnyCancellable>()
+    private var wakeObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model = UsageRefreshModel(
@@ -21,6 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         configurePopover()
         observeModel()
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.model.requireMilestoneBaseline() }
+        }
         model.start()
         if model.configuration == nil {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
@@ -29,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         model.stop()
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
     }
 
     private func configureStatusItem() {
@@ -84,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.activate(ignoringOtherApps: true)
             return
         }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 400), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "CPA Usage 设置"
         window.center()
         window.isReleasedWhenClosed = false

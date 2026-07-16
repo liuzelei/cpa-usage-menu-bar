@@ -38,7 +38,7 @@ func crossingFixedMilestonesTriggersOnce() {
 func crossingMultipleMilestonesUsesHighest() {
     var tracker = trackerWithBaseline(9_000_000)
     #expect(tracker.observe(tokens: 120_000_000, date: milestoneDay, identity: milestoneIdentity, calendar: milestoneCalendar) == TokenMilestone(tokens: 100_000_000))
-    #expect(tracker.state?.celebratedMilestones == [100_000_000])
+    #expect(tracker.state?.celebratedMilestones == [10_000_000, 50_000_000, 100_000_000])
 }
 
 @Test

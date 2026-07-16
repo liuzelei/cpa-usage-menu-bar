@@ -10,6 +10,8 @@ struct SettingsView: View {
     @State private var refreshInterval: TimeInterval
     @State private var menuBarMetric: MenuBarMetric
     @State private var launchAtLogin: Bool
+    @State private var celebrationStyle: CelebrationStyle
+    @State private var celebrationSoundEnabled: Bool
     @State private var isSaving = false
     @State private var validationError: String?
 
@@ -22,6 +24,8 @@ struct SettingsView: View {
         _refreshInterval = State(initialValue: configuration?.refreshInterval ?? 60)
         _menuBarMetric = State(initialValue: configuration?.menuBarMetric ?? .tokens)
         _launchAtLogin = State(initialValue: configuration?.launchAtLogin ?? false)
+        _celebrationStyle = State(initialValue: configuration?.celebrationStyle ?? .off)
+        _celebrationSoundEnabled = State(initialValue: configuration?.celebrationSoundEnabled ?? false)
     }
 
     var body: some View {
@@ -59,6 +63,24 @@ struct SettingsView: View {
                 Toggle("登录时启动", isOn: $launchAtLogin)
             }
 
+            Section("Token 里程碑彩蛋") {
+                Picker("庆祝效果", selection: $celebrationStyle) {
+                    ForEach(CelebrationStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                Toggle("播放提示音", isOn: $celebrationSoundEnabled)
+                    .disabled(celebrationStyle == .off)
+                HStack {
+                    Text("当天达到 10M、50M、100M，之后每增加 100M 播放一次。不会补播错过的里程碑。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("预览效果") {
+                        model.previewCelebration(style: celebrationStyle, soundEnabled: celebrationSoundEnabled)
+                    }
+                    .disabled(celebrationStyle == .off || model.isCelebrationPresenting)
+                }
+            }
+
             if let validationError {
                 Text(validationError).foregroundStyle(.red).font(.caption)
             }
@@ -72,7 +94,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(8)
-        .frame(width: 460, height: 400)
+        .frame(width: 500, height: 560)
     }
 
     private func save() {
@@ -87,7 +109,9 @@ struct SettingsView: View {
                     authenticationType: authenticationType,
                     refreshInterval: refreshInterval,
                     menuBarMetric: menuBarMetric,
-                    launchAtLogin: launchAtLogin
+                    launchAtLogin: launchAtLogin,
+                    celebrationStyle: celebrationStyle,
+                    celebrationSoundEnabled: celebrationSoundEnabled
                 )
                 try await model.validateAndSave(configuration: configuration, credential: credential)
                 credential = ""

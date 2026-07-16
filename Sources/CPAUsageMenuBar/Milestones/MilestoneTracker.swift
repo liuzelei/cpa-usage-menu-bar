@@ -50,7 +50,7 @@ struct MilestoneTracker: MilestoneTracking {
             state = currentState
             return nil
         }
-        currentState.celebratedMilestones.insert(highest)
+        currentState.celebratedMilestones.formUnion(crossed)
         state = currentState
         return TokenMilestone(tokens: highest)
     }
