@@ -69,6 +69,7 @@ struct RetroAchievementView: View {
                         .frame(height: 13)
                     }
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.green.opacity(0.78))
 
                     if let badge = session.copy.badge {
                         Text("[ \(badge) ]")
