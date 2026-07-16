@@ -13,6 +13,7 @@ final class UsageRefreshModel: ObservableObject {
     private let preferences: PreferencesStoring
     private let credentials: CredentialStoring
     private let api: any KeeperAPIClientProtocol
+    private let launchAtLogin: LaunchAtLoginControlling
     private var timer: Timer?
     private var snapshots: [UsageRange: UsageSnapshot] = [:]
     private var authenticationSuspended = false
@@ -20,11 +21,13 @@ final class UsageRefreshModel: ObservableObject {
     init(
         preferences: PreferencesStoring,
         credentials: CredentialStoring,
-        api: any KeeperAPIClientProtocol
+        api: any KeeperAPIClientProtocol,
+        launchAtLogin: LaunchAtLoginControlling = LaunchAtLoginController()
     ) {
         self.preferences = preferences
         self.credentials = credentials
         self.api = api
+        self.launchAtLogin = launchAtLogin
         self.configuration = try? preferences.load()
     }
 
@@ -89,10 +92,13 @@ final class UsageRefreshModel: ObservableObject {
         guard let credential, !credential.isEmpty else { throw AppError.missingCredential }
 
         let validated = try await api.fetchOverview(configuration: candidate, credential: credential, range: .today)
-        try credentials.replace(with: credential)
+        let oldLaunchAtLogin = launchAtLogin.isEnabled
+        try launchAtLogin.setEnabled(candidate.launchAtLogin)
         do {
+            try credentials.replace(with: credential)
             try preferences.save(candidate)
         } catch {
+            try? launchAtLogin.setEnabled(oldLaunchAtLogin)
             if let oldCredential { try? credentials.replace(with: oldCredential) }
             else { try? credentials.delete() }
             throw error
