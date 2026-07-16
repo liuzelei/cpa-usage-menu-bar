@@ -27,7 +27,14 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("连接") {
-                TextField("http://keeper.local:8318", text: $urlText)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(SettingsCopy.keeperURLLabel)
+                        .font(.body)
+                    TextField(SettingsCopy.keeperURLPlaceholder, text: $urlText)
+                    Text(SettingsCopy.keeperURLHelp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Picker("认证类型", selection: $authenticationType) {
                     ForEach(AuthenticationType.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
