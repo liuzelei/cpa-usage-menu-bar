@@ -1,0 +1,164 @@
+name: Release macOS App
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version used for a validation build
+        required: true
+        default: "1.0.0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      APP_PATH: dist/CPA Usage.app
+      APP_ARCHS: "arm64 x86_64"
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: swift test
+
+      - name: Resolve version
+        id: version
+        shell: zsh
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ inputs.version }}"
+          fi
+          if ! print -rn -- "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            print -u2 "Invalid version: $version"
+            exit 1
+          fi
+          print "version=$version" >> "$GITHUB_OUTPUT"
+          print "archive=CPA-Usage-$version.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Apply version metadata
+        shell: zsh
+        run: |
+          plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Resources/Info.plist
+          plutil -replace CFBundleVersion -string "$GITHUB_RUN_NUMBER" Resources/Info.plist
+
+      - name: Build universal app
+        run: ./scripts/build-app.sh
+
+      - name: Import Developer ID certificate
+        id: signing
+        shell: zsh
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/release-signing.keychain-db"
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          keychain_password="$(uuidgen)$(uuidgen)"
+
+          print -rn -- "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "$identity" ]]; then
+            print -u2 "Developer ID Application identity not found"
+            exit 1
+          fi
+
+          print "keychain=$keychain" >> "$GITHUB_OUTPUT"
+          print "identity=$identity" >> "$GITHUB_OUTPUT"
+
+      - name: Sign application
+        shell: zsh
+        run: |
+          codesign --force --deep --strict --options runtime --timestamp \
+            --keychain "${{ steps.signing.outputs.keychain }}" \
+            --sign "${{ steps.signing.outputs.identity }}" \
+            "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Submit for notarization
+        shell: zsh
+        run: |
+          notarization_archive="$RUNNER_TEMP/CPA-Usage-notarization.zip"
+          ditto -c -k --keepParent "$APP_PATH" "$notarization_archive"
+          xcrun notarytool submit "$notarization_archive" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+      - name: Staple and validate notarization
+        shell: zsh
+        run: |
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+
+          [[ "$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Contents/Info.plist")" == "cn.winlio.cpausage" ]]
+          archs="$(lipo -archs "$APP_PATH/Contents/MacOS/CPAUsageMenuBar")"
+          [[ " $archs " == *" arm64 "* ]]
+          [[ " $archs " == *" x86_64 "* ]]
+
+      - name: Package release
+        id: package
+        shell: zsh
+        run: |
+          archive="dist/${{ steps.version.outputs.archive }}"
+          rm -f "$archive" "$archive.sha256"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$archive"
+          shasum -a 256 "$archive" > "$archive.sha256"
+          print "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CPA-Usage-${{ steps.version.outputs.version }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "${{ steps.package.outputs.archive }}" \
+            "${{ steps.package.outputs.archive }}.sha256" \
+            --verify-tag \
+            --generate-notes \
+            --title "CPA Usage $GITHUB_REF_NAME"
+
+      - name: Remove temporary credentials
+        if: always()
+        shell: zsh
+        run: |
+          keychain="${{ steps.signing.outputs.keychain }}"
+          if [[ -n "$keychain" && -f "$keychain" ]]; then
+            security delete-keychain "$keychain" || true
+          fi
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/CPA-Usage-notarization.zip"
