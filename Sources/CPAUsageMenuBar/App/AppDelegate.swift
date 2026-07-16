@@ -54,11 +54,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func configurePopover() {
         popover.behavior = .transient
         popover.animates = true
-        popover.contentViewController = NSHostingController(rootView: UsagePopoverView(
+        let controller = NSHostingController(rootView: UsagePopoverView(
             model: model,
             openSettings: { [weak self] in self?.openSettings() },
             quit: { NSApplication.shared.terminate(nil) }
         ))
+        controller.sizingOptions = PopoverLayout.hostingSizingOptions
+        popover.contentViewController = controller
     }
 
     private func observeModel() {
