@@ -121,6 +121,11 @@ jobs:
           dmg="dist/${{ steps.version.outputs.dmg }}"
           APP_PATH="$APP_PATH" OUTPUT_DMG="$dmg" VOLUME_NAME="CPA Usage" \
             ./scripts/package-dmg.sh
+          codesign --force --timestamp \
+            --keychain "${{ steps.signing.outputs.keychain }}" \
+            --sign "${{ steps.signing.outputs.identity }}" \
+            "$dmg"
+          codesign --verify --verbose=2 "$dmg"
           print "dmg=$dmg" >> "$GITHUB_OUTPUT"
 
       - name: Submit disk image for notarization
@@ -139,7 +144,9 @@ jobs:
           dmg="${{ steps.disk_image.outputs.dmg }}"
           xcrun stapler staple "$dmg"
           xcrun stapler validate "$dmg"
-          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+          assessment="$(spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg" 2>&1)"
+          print -r -- "$assessment"
+          print -r -- "$assessment" | grep -q ': accepted$'
 
           mount_dir="$RUNNER_TEMP/mount-${{ matrix.arch }}"
           mkdir -p "$mount_dir"
