@@ -28,13 +28,13 @@ final class CelebrationCoordinator: CelebrationCoordinating {
 
     init(
         presenter: any CelebrationPresenting,
-        soundPlayer: any CelebrationSoundPlaying = CelebrationSoundPlayer(),
+        soundPlayer: (any CelebrationSoundPlaying)? = nil,
         copyProvider: any MemeCopyProviding = MemeCopyProvider(),
         seedProvider: @escaping () -> UInt64 = { UInt64.random(in: .min ... .max) },
         now: @escaping () -> Date = Date.init
     ) {
         self.presenter = presenter
-        self.soundPlayer = soundPlayer
+        self.soundPlayer = soundPlayer ?? CelebrationSoundPlayer()
         self.copyProvider = copyProvider
         self.seedProvider = seedProvider
         self.now = now
