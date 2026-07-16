@@ -40,7 +40,7 @@ final class CelebrationWindowController: CelebrationPresenting {
             panel.level = configuration.level
             panel.collectionBehavior = configuration.collectionBehavior
             panel.hidesOnDeactivate = false
-            panel.contentView = NSHostingView(rootView: AnyView(Color.clear))
+            panel.contentView = NSHostingView(rootView: AnyView(CelebrationRootView(session: session)))
             panel.orderFrontRegardless()
             return panel
         }
