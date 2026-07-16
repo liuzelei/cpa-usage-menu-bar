@@ -15,5 +15,10 @@ rg -q 'notarytool submit' "$workflow"
 rg -q 'stapler staple' "$workflow"
 rg -q 'spctl --assess' "$workflow"
 rg -q 'gh release create' "$workflow"
+rg -Fq 'shell: zsh {0}' "$workflow"
+if rg -q 'shell: zsh$' "$workflow"; then
+    print -u2 'Bare shell: zsh declarations are not supported by GitHub Actions'
+    exit 1
+fi
 
 ruby -e 'require "yaml"; YAML.safe_load(File.read(ARGV[0]), aliases: true)' "$workflow"

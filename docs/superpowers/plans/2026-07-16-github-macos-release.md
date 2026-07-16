@@ -229,7 +229,7 @@ jobs:
 
       - name: Resolve version
         id: version
-        shell: zsh
+        shell: zsh {0}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
@@ -245,7 +245,7 @@ jobs:
           print "archive=CPA-Usage-$version.zip" >> "$GITHUB_OUTPUT"
 
       - name: Apply version metadata
-        shell: zsh
+        shell: zsh {0}
         run: |
           plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Resources/Info.plist
           plutil -replace CFBundleVersion -string "$GITHUB_RUN_NUMBER" Resources/Info.plist
@@ -255,7 +255,7 @@ jobs:
 
       - name: Import Developer ID certificate
         id: signing
-        shell: zsh
+        shell: zsh {0}
         run: |
           set -euo pipefail
           keychain="$RUNNER_TEMP/release-signing.keychain-db"
@@ -280,7 +280,7 @@ jobs:
           print "identity=$identity" >> "$GITHUB_OUTPUT"
 
       - name: Sign application
-        shell: zsh
+        shell: zsh {0}
         run: |
           codesign --force --deep --strict --options runtime --timestamp \
             --keychain "${{ steps.signing.outputs.keychain }}" \
@@ -289,7 +289,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Submit for notarization
-        shell: zsh
+        shell: zsh {0}
         run: |
           notarization_archive="$RUNNER_TEMP/CPA-Usage-notarization.zip"
           ditto -c -k --keepParent "$APP_PATH" "$notarization_archive"
@@ -300,7 +300,7 @@ jobs:
             --wait
 
       - name: Staple and validate notarization
-        shell: zsh
+        shell: zsh {0}
         run: |
           xcrun stapler staple "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
@@ -314,7 +314,7 @@ jobs:
 
       - name: Package release
         id: package
-        shell: zsh
+        shell: zsh {0}
         run: |
           archive="dist/${{ steps.version.outputs.archive }}"
           rm -f "$archive" "$archive.sha256"
@@ -345,7 +345,7 @@ jobs:
 
       - name: Remove temporary credentials
         if: always()
-        shell: zsh
+        shell: zsh {0}
         run: |
           keychain="${{ steps.signing.outputs.keychain }}"
           if [[ -n "$keychain" && -f "$keychain" ]]; then

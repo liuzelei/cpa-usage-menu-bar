@@ -19,14 +19,43 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         requests = []
     }
 
+    private static func capturedRequest(_ request: URLRequest) -> URLRequest {
+        guard request.httpBody == nil, let stream = request.httpBodyStream else { return request }
+
+        stream.open()
+        defer { stream.close() }
+
+        var body = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
+        defer { buffer.deallocate() }
+
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: 1_024)
+            guard count >= 0 else { return request }
+            if count == 0 { break }
+            body.append(buffer, count: count)
+        }
+
+        var captured = request
+        captured.httpBodyStream = nil
+        captured.httpBody = body
+        return captured
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         Self.lock.lock()
-        Self.requests.append(request)
-        let stub = Self.stubs.removeFirst()
+        Self.requests.append(Self.capturedRequest(request))
+        let stub = Self.stubs.isEmpty ? nil : Self.stubs.removeFirst()
         Self.lock.unlock()
+
+        guard let stub else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
         let response = HTTPURLResponse(url: request.url!, statusCode: stub.status, httpVersion: nil, headerFields: stub.headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         if !stub.body.isEmpty { client?.urlProtocol(self, didLoad: stub.body) }
