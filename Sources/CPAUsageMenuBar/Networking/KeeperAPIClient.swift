@@ -47,6 +47,7 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
     private let session: URLSession
     private let now: @Sendable () -> Date
     private var authenticatedContext: AuthContext?
+    private var sessionCookieHeader: String?
 
     init(session: URLSession? = nil, now: @escaping @Sendable () -> Date = Date.init) {
         if let session {
@@ -55,6 +56,7 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpCookieStorage = HTTPCookieStorage()
             configuration.httpShouldSetCookies = true
+            configuration.httpCookieAcceptPolicy = .always
             configuration.timeoutIntervalForRequest = 15
             self.session = URLSession(configuration: configuration)
         }
@@ -68,6 +70,7 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
     ) async throws -> UsageSnapshot {
         let context = AuthContext(baseURL: configuration.baseURL, authenticationType: configuration.authenticationType)
         if authenticatedContext != context {
+            sessionCookieHeader = nil
             try await login(configuration: configuration, credential: credential)
             authenticatedContext = context
         }
@@ -75,6 +78,7 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
         let first = try await overviewResponse(configuration: configuration, range: range)
         if first.statusCode == 401 {
             authenticatedContext = nil
+            sessionCookieHeader = nil
             try await login(configuration: configuration, credential: credential)
             authenticatedContext = context
             let retried = try await overviewResponse(configuration: configuration, range: range)
@@ -107,7 +111,13 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (_, response) = try await perform(request)
         switch response.statusCode {
-        case 200..<300: return
+        case 200..<300:
+            let headerFields = response.allHeaderFields.reduce(into: [String: String]()) { result, pair in
+                result[String(describing: pair.key)] = String(describing: pair.value)
+            }
+            let cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: request.url!)
+            sessionCookieHeader = HTTPCookie.requestHeaderFields(with: cookies)["Cookie"]
+            return
         case 401: throw AppError.authenticationFailed
         case 403: throw AppError.forbidden
         default: throw AppError.server(status: response.statusCode)
@@ -125,6 +135,9 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
         components.queryItems = [URLQueryItem(name: "range", value: range.rawValue)]
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = 15
+        if let sessionCookieHeader {
+            request.setValue(sessionCookieHeader, forHTTPHeaderField: "Cookie")
+        }
         let (data, response) = try await perform(request)
         return (data, response, response.statusCode)
     }

@@ -6,7 +6,7 @@ enum AuthenticationType: String, Codable, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .administratorPassword: "管理员密码"
+        case .administratorPassword: "Keeper 管理密钥"
         case .cpaAPIKey: "CPA API Key"
         }
     }

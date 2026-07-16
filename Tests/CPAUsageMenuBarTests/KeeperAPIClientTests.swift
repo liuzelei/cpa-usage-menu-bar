@@ -48,6 +48,7 @@ private func makeClient() -> KeeperAPIClient {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [StubURLProtocol.self]
     configuration.httpCookieStorage = HTTPCookieStorage()
+    configuration.httpCookieAcceptPolicy = .always
     return KeeperAPIClient(session: URLSession(configuration: configuration), now: { Date(timeIntervalSince1970: 100) })
 }
 
@@ -70,6 +71,7 @@ struct KeeperAPIClientTests {
         let loginBody = try #require(StubURLProtocol.requests[0].httpBody)
         let json = try #require(JSONSerialization.jsonObject(with: loginBody) as? [String: String])
         #expect(json == ["password": "secret"])
+        #expect(StubURLProtocol.requests[1].value(forHTTPHeaderField: "Cookie")?.contains("cpa_usage_keeper_session=session") == true)
         #expect(snapshot.tokens == 1234)
         #expect(snapshot.cost == 0.42)
         #expect(snapshot.refreshedAt == Date(timeIntervalSince1970: 100))

@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configurePopover()
         observeModel()
         model.start()
+        if model.configuration == nil {
+            DispatchQueue.main.async { [weak self] in self?.openSettings() }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
