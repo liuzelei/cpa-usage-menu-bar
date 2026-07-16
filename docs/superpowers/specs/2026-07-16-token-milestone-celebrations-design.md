@@ -178,7 +178,7 @@ Three isolated SwiftUI views implement the visual styles. Particle simulation us
 
 ### CelebrationSoundPlayer
 
-Provides one short bundled sound per celebration when enabled. It is called once by the coordinator, not by individual display windows.
+Provides one short macOS system sound per celebration when enabled. It is called once by the coordinator, not by individual display windows.
 
 ### UsageRefreshModel Integration
 
