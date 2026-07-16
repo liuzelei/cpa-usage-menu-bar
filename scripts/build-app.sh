@@ -14,6 +14,12 @@ fi
 
 app_dir="$root_dir/dist/CPA Usage.app"
 executable="$app_dir/Contents/MacOS/CPAUsageMenuBar"
+icon="$root_dir/Resources/AppIcon/AppIcon.icns"
+
+if [[ ! -f "$icon" ]]; then
+    print -u2 "Application icon not found: $icon"
+    exit 1
+fi
 
 rm -rf "$app_dir"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
@@ -33,6 +39,7 @@ else
 fi
 
 cp "$root_dir/Resources/Info.plist" "$app_dir/Contents/Info.plist"
+cp "$icon" "$app_dir/Contents/Resources/AppIcon.icns"
 
 if command -v codesign >/dev/null 2>&1; then
     codesign --force --deep --sign - "$app_dir"
