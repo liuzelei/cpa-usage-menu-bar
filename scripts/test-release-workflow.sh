@@ -7,6 +7,9 @@ workflow="$root_dir/.github/workflows/release.yml"
 [[ -f "$workflow" ]]
 rg -q 'tags:' "$workflow"
 rg -q 'workflow_dispatch:' "$workflow"
+rg -q 'actions/checkout@v5' "$workflow"
+rg -q 'actions/upload-artifact@v6' "$workflow"
+rg -q 'actions/download-artifact@v7' "$workflow"
 rg -q 'matrix:' "$workflow"
 rg -q 'arch: \[arm64, x86_64\]' "$workflow"
 rg -Fq 'APP_ARCHS: ${{ matrix.arch }}' "$workflow"
@@ -27,6 +30,10 @@ rg -q 'gh release create' "$workflow"
 rg -Fq 'shell: zsh {0}' "$workflow"
 if rg -q 'CPA-Usage-.*\.zip|ditto -c -k' "$workflow"; then
     print -u2 'Release workflow must not package a Universal ZIP'
+    exit 1
+fi
+if rg -q 'actions/(checkout|upload-artifact|download-artifact)@v4' "$workflow"; then
+    print -u2 'Release workflow must use Node.js 24 action versions'
     exit 1
 fi
 if rg -q 'shell: zsh$' "$workflow"; then
