@@ -19,8 +19,8 @@ struct UsagePopoverView: View {
             Divider()
             footer
         }
-        .padding(16)
-        .frame(width: 360)
+        .frame(width: PopoverLayout.contentWidth, alignment: .leading)
+        .padding(PopoverLayout.padding)
     }
 
     private var header: some View {
