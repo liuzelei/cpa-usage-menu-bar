@@ -12,6 +12,11 @@ private final class MemoryCredentialBackend: CredentialBackend {
 }
 
 @Test
+func credentialStoreUsesWinlioServiceIdentifier() {
+    #expect(KeychainCredentialStore.service == "cn.winlio.cpausage")
+}
+
+@Test
 func credentialRoundTripUsesSingleActiveItem() throws {
     let backend = MemoryCredentialBackend()
     let store = KeychainCredentialStore(backend: backend)

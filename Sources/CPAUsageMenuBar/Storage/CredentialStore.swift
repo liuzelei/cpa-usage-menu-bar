@@ -14,7 +14,7 @@ protocol CredentialBackend: AnyObject {
 }
 
 final class KeychainCredentialStore: CredentialStoring {
-    static let service = "com.cpausage.menubar"
+    static let service = "cn.winlio.cpausage"
     static let account = "active-credential"
 
     private let backend: CredentialBackend

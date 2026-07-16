@@ -211,7 +211,7 @@ git commit -m "feat: add usage models and formatting"
 - Produces: `protocol PreferencesStoring` with `load()`, `save(_:)`, and `clear()`.
 - Produces: `final class PreferencesStore` backed by injected `UserDefaults`.
 - Produces: `protocol CredentialStoring` with `read()`, `replace(with:)`, and `delete()`.
-- Produces: `final class KeychainCredentialStore` using service `com.cpausage.menubar` and account `active-credential`.
+- Produces: `final class KeychainCredentialStore` using service `cn.winlio.cpausage` and account `active-credential`.
 
 - [ ] **Step 1: Write failing isolated storage tests**
 
@@ -506,7 +506,7 @@ Use `SMAppService.mainApp.register()` and `.unregister()`. Treat `.enabled` as e
 `Info.plist` must set:
 
 ```xml
-<key>CFBundleIdentifier</key><string>com.cpausage.menubar</string>
+<key>CFBundleIdentifier</key><string>cn.winlio.cpausage</string>
 <key>CFBundleName</key><string>CPA Usage</string>
 <key>CFBundleExecutable</key><string>CPAUsageMenuBar</string>
 <key>LSUIElement</key><true/>
