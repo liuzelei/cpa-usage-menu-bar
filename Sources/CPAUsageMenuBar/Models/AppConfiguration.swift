@@ -44,12 +44,71 @@ enum MenuBarMetric: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum CelebrationStyle: String, Codable, CaseIterable, Sendable {
+    case off
+    case cinematic
+    case achievementToast
+    case retro
+    case random
+
+    var title: String {
+        switch self {
+        case .off: "关闭"
+        case .cinematic: "电影烟花"
+        case .achievementToast: "顶部成就通知"
+        case .retro: "复古游戏成就"
+        case .random: "每次随机"
+        }
+    }
+}
+
 struct AppConfiguration: Codable, Equatable, Sendable {
     let baseURL: URL
     let authenticationType: AuthenticationType
     let refreshInterval: TimeInterval
     let menuBarMetric: MenuBarMetric
     let launchAtLogin: Bool
+    let celebrationStyle: CelebrationStyle
+    let celebrationSoundEnabled: Bool
+
+    init(
+        baseURL: URL,
+        authenticationType: AuthenticationType,
+        refreshInterval: TimeInterval,
+        menuBarMetric: MenuBarMetric,
+        launchAtLogin: Bool,
+        celebrationStyle: CelebrationStyle = .off,
+        celebrationSoundEnabled: Bool = false
+    ) {
+        self.baseURL = baseURL
+        self.authenticationType = authenticationType
+        self.refreshInterval = refreshInterval
+        self.menuBarMetric = menuBarMetric
+        self.launchAtLogin = launchAtLogin
+        self.celebrationStyle = celebrationStyle
+        self.celebrationSoundEnabled = celebrationSoundEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case baseURL
+        case authenticationType
+        case refreshInterval
+        case menuBarMetric
+        case launchAtLogin
+        case celebrationStyle
+        case celebrationSoundEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        baseURL = try container.decode(URL.self, forKey: .baseURL)
+        authenticationType = try container.decode(AuthenticationType.self, forKey: .authenticationType)
+        refreshInterval = try container.decode(TimeInterval.self, forKey: .refreshInterval)
+        menuBarMetric = try container.decode(MenuBarMetric.self, forKey: .menuBarMetric)
+        launchAtLogin = try container.decode(Bool.self, forKey: .launchAtLogin)
+        celebrationStyle = try container.decodeIfPresent(CelebrationStyle.self, forKey: .celebrationStyle) ?? .off
+        celebrationSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .celebrationSoundEnabled) ?? false
+    }
 
     static func normalizedBaseURL(_ input: String) throws -> URL {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
