@@ -1,177 +1,179 @@
 # CPA Usage Menu Bar
 
-一个轻量的原生 macOS 状态栏应用，用来查看单个 [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper) 实例的用量。无需一直保留浏览器标签页，今日 Token 数可以直接显示在菜单栏中。
+English | [简体中文](./README.zh-CN.md)
 
-## 功能
+A lightweight native macOS menu bar app for monitoring usage from a single [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper) instance. It shows today's token count directly in the menu bar, so you do not need to keep a browser tab open.
 
-- 状态栏显示今日 Token、费用、请求数，或仅显示图标。
-- 原生弹窗展示请求数、Token、费用和成功率。
-- 支持今日、最近 24 小时、7 天和 30 天。
-- 支持 Keeper 管理密钥和 CPA API Key 两种认证方式。
-- 支持配置 Keeper 地址、刷新周期、状态栏指标和登录时启动。
-- 密码或 API Key 仅存储在 macOS Keychain。
-- Keeper Session 失效后自动重新认证。
-- 网络异常时保留最后一次成功数据。
-- 可选的 Token 里程碑桌面彩蛋，支持多显示器同步播放、三种视觉风格和提示音。
+## Features
 
-## 系统要求
+- Show today's token count, cost, request count, or an icon only in the menu bar.
+- View request count, tokens, cost, and success rate in a native popover.
+- Switch between Today, Last 24 Hours, 7 Days, and 30 Days.
+- Authenticate with either a Keeper admin key or a CPA API key.
+- Configure the Keeper URL, refresh interval, menu bar metric, and launch at login.
+- Store passwords and API keys exclusively in macOS Keychain.
+- Automatically reauthenticate when the Keeper session expires.
+- Keep the most recent successful data when a network error occurs.
+- Enable optional token milestone celebrations with synchronized multi-display playback, three visual styles, and sound effects.
 
-- macOS 13 或更高版本。
-- Apple Silicon Mac。
-- 构建时需要 Apple Command Line Tools 或 Xcode。
+## Requirements
 
-安装 Apple Command Line Tools：
+- macOS 13 or later.
+- An Apple silicon Mac.
+- Apple Command Line Tools or Xcode for building from source.
+
+Install Apple Command Line Tools:
 
 ```bash
 xcode-select --install
 ```
 
-## 获取源码
+## Get the Source
 
 ```bash
 git clone https://github.com/liuzelei/cpa-usage-menu-bar.git
 cd cpa-usage-menu-bar
 ```
 
-## 构建
+## Build
 
-先编译测试目标：
+Build and run the tests first:
 
 ```bash
 swift test
 ```
 
-再生成 Release 应用：
+Then create the release app:
 
 ```bash
 ./scripts/build-app.sh
 ```
 
-构建产物位于：
+The app will be generated at:
 
 ```text
 dist/CPA Usage.app
 ```
 
-构建脚本会：
+The build script:
 
-1. 使用 Swift Package Manager 进行 Release 编译。
-2. 组装标准 macOS `.app` 目录。
-3. 使用本机 ad-hoc 签名，方便直接运行。
+1. Builds the release configuration with Swift Package Manager.
+2. Assembles a standard macOS `.app` bundle.
+3. Applies a local ad hoc signature so the app can run immediately.
 
-## 安装与启动
+## Install and Launch
 
-将应用复制到 `/Applications`：
+Copy the app to `/Applications`:
 
 ```bash
 cp -R "dist/CPA Usage.app" /Applications/
 open "/Applications/CPA Usage.app"
 ```
 
-应用是菜单栏程序，正常运行时不会显示在 Dock 中。首次启动会自动打开设置窗口。
+This is a menu bar app and does not appear in the Dock during normal operation. The Settings window opens automatically on first launch.
 
-如果 macOS 阻止首次运行，可以在 Finder 中右键应用并选择“打开”。
+If macOS blocks the app the first time you launch it, right-click the app in Finder and choose **Open**.
 
-## 配置
+## Configuration
 
-### Keeper 服务地址
+### Keeper Service URL
 
-填写 CPA Usage Keeper 仪表盘的访问地址。
+Enter the URL used to access the CPA Usage Keeper dashboard.
 
-Keeper 官方文档中的默认 HTTP 监听端口是 `8080`，局域网部署示例：
+The default HTTP port in the Keeper documentation is `8080`. For example, a deployment on your local network might use:
 
 ```text
 http://192.168.1.10:8080
 ```
 
-如果部署时修改了 `APP_PORT`、配置了反向代理或使用了子路径，请填写浏览器中实际访问 Keeper 仪表盘的完整根地址。
+If your deployment changes `APP_PORT`, uses a reverse proxy, or is hosted under a subpath, enter the complete base URL that opens the Keeper dashboard in your browser.
 
-### 认证方式
+### Authentication
 
-应用支持两种身份，二者使用不同的 Keeper 接口：
+The app supports two authentication methods, each using a different Keeper endpoint:
 
-| 认证方式 | Keeper 登录接口 | 可查看的数据 |
+| Authentication method | Keeper login endpoint | Available data |
 | --- | --- | --- |
-| Keeper 管理密钥 | `/api/v1/auth/login` | 整个 Keeper 实例的用量 |
-| CPA API Key | `/api/v1/auth/api-key-login` | 该 CPA API Key 自己的用量 |
+| Keeper admin key | `/api/v1/auth/login` | Usage for the entire Keeper instance |
+| CPA API key | `/api/v1/auth/api-key-login` | Usage for that CPA API key only |
 
-“Keeper 管理密钥”对应 Keeper 配置中的 `LOGIN_PASSWORD`。
+The **Keeper Admin Key** corresponds to `LOGIN_PASSWORD` in the Keeper configuration.
 
-`CPA_MANAGEMENT_KEY` 是 Keeper 服务端访问 CPA 管理接口时使用的配置，不能用来登录 Keeper 仪表盘。
+`CPA_MANAGEMENT_KEY` is used by the Keeper server to access the CPA management API. It cannot be used to sign in to the Keeper dashboard.
 
-### 其他设置
+### Other Settings
 
-- 状态栏显示：今日 Token、今日费用、今日请求数或仅图标。
-- 刷新间隔：30 秒、60 秒、5 分钟或 15 分钟。
-- 登录时启动：使用 macOS `SMAppService`。建议先将应用放入 `/Applications`。
+- Menu bar display: today's tokens, today's cost, today's request count, or icon only.
+- Refresh interval: 30 seconds, 60 seconds, 5 minutes, or 15 minutes.
+- Launch at login: uses macOS `SMAppService`. Move the app to `/Applications` first for best results.
 
-保存设置前，应用会先验证 URL 和凭据。验证失败时不会覆盖原来的有效配置。
+Before saving, the app validates the URL and credentials. If validation fails, the existing working configuration is preserved.
 
-### Token 里程碑彩蛋
+### Token Milestone Celebrations
 
-彩蛋默认关闭，需要在“设置…”中的“Token 里程碑彩蛋”手动启用。可选择：
+Celebrations are disabled by default. Enable **Token Milestone Celebrations** manually in **Settings…**, then choose one of these styles:
 
-- 电影烟花：全屏烟花、居中里程碑文案。
-- 顶部成就通知：从屏幕顶部出现的成就卡片和纸屑。
-- 复古游戏成就：像素风成就面板、粒子和进度条。
-- 每次随机：每次从以上三种效果中随机选择一种，所有显示器保持一致。
+- Cinematic Fireworks: full-screen fireworks with centered milestone text.
+- Top Achievement Banner: an achievement card and confetti that appear from the top of the screen.
+- Retro Game Achievement: a pixel-art achievement panel with particles and a progress bar.
+- Random Each Time: randomly selects one of the three effects for each celebration, using the same effect on every display.
 
-触发档位是当天累计 `10M`、`50M`、`100M` Token，超过 `100M` 后每增加 `100M` 再触发一次。一次刷新跨过多个档位时只展示最高档位；每个档位每天只展示一次。
+Milestones trigger when the daily total reaches `10M`, `50M`, and `100M` tokens, then for every additional `100M` tokens after that. If one refresh crosses multiple milestones, only the highest one is shown. Each milestone is shown at most once per day.
 
-应用不会在启动、Mac 唤醒、日期切换或更换 Keeper 身份后补播已经错过的档位。彩蛋会同时覆盖所有已连接显示器，但不会抢占键盘焦点或拦截鼠标操作。
+The app does not replay missed milestones after launch, Mac wake, a date change, or a Keeper identity change. Celebrations appear on all connected displays at the same time without taking keyboard focus or intercepting mouse input.
 
-提示音默认关闭。启用后每次彩蛋只播放一次，不会按显示器重复播放。“预览效果”使用模拟的 `50M` 里程碑和当前尚未保存的效果设置，不会读取或修改真实用量及里程碑记录。
+Sound is disabled by default. When enabled, it plays once per celebration rather than once per display. **Preview Effect** uses a simulated `50M` milestone and the current unsaved effect settings; it does not read or change real usage data or milestone records.
 
-## 使用
+## Usage
 
-点击状态栏中的图标或数字打开摘要弹窗：
+Click the icon or value in the menu bar to open the summary popover:
 
-- 切换今日、24 小时、7 天或 30 天范围。
-- 查看请求数、Token、费用和成功率。
-- 点击刷新按钮立即更新数据。
-- 点击“打开面板”在默认浏览器中打开完整 Keeper 仪表盘。
-- 点击“设置…”修改连接或显示选项。
-- 点击“退出”关闭应用。
+- Switch between Today, 24 Hours, 7 Days, and 30 Days.
+- View request count, tokens, cost, and success rate.
+- Click the refresh button to update data immediately.
+- Click **Open Dashboard** to open the full Keeper dashboard in your default browser.
+- Click **Settings…** to change connection or display options.
+- Click **Quit** to close the app.
 
-状态栏出现感叹号时，点击它可以查看认证、网络或兼容性错误。发生暂时性网络错误时，应用仍会保留最后一次成功数据和更新时间。
+When an exclamation mark appears in the menu bar, click it to view authentication, network, or compatibility errors. During a temporary network error, the app keeps the most recent successful data and its update time.
 
-## 安全说明
+## Security
 
-- Keeper 管理密钥或 CPA API Key 只存储在 macOS Keychain。
-- URL、认证类型和显示偏好存储在本地 `UserDefaults`。
-- 当天已观察和已展示的 Token 里程碑状态也存储在本地 `UserDefaults`，不包含凭据。
-- 应用不会记录凭据、Cookie、登录请求体或完整 API 响应。
-- 使用 `http://` 时，凭据在网络传输中不受 TLS 加密保护。HTTP 只适合可信局域网，条件允许时建议通过 HTTPS 或可信反向代理访问 Keeper。
+- Keeper admin keys and CPA API keys are stored only in macOS Keychain.
+- The URL, authentication type, and display preferences are stored locally in `UserDefaults`.
+- Observed and displayed token milestone state for the current day is also stored in `UserDefaults` and contains no credentials.
+- The app does not log credentials, cookies, login request bodies, or complete API responses.
+- When using `http://`, credentials are not protected by TLS during network transmission. Use HTTP only on a trusted local network; HTTPS or a trusted reverse proxy is recommended whenever possible.
 
-## 故障排查
+## Troubleshooting
 
-### 无法连接 Keeper
+### Cannot Connect to Keeper
 
-- 确认 Mac 可以在浏览器中打开相同 URL。
-- 确认端口正确；Keeper 默认端口是 `8080`，但部署配置可能不同。
-- 检查防火墙、VPN、反向代理和局域网路由。
+- Confirm that the same URL opens in a browser on your Mac.
+- Confirm that the port is correct. Keeper uses `8080` by default, but your deployment may differ.
+- Check your firewall, VPN, reverse proxy, and local network routing.
 
-### 认证失败
+### Authentication Failed
 
-- 管理员应选择“Keeper 管理密钥”并填写 `LOGIN_PASSWORD`。
-- 普通用户应选择“CPA API Key”。
-- 不要把 `CPA_MANAGEMENT_KEY` 当成 Keeper 登录密码。
+- Administrators should select **Keeper Admin Key** and enter `LOGIN_PASSWORD`.
+- Regular users should select **CPA API Key**.
+- Do not use `CPA_MANAGEMENT_KEY` as the Keeper login password.
 
-### 状态栏没有数据
+### No Data in the Menu Bar
 
-- 点击状态栏图标查看具体错误。
-- 手动刷新一次。
-- 确认所选 CPA API Key 已经产生用量记录。
+- Click the menu bar icon to view the specific error.
+- Refresh manually.
+- Confirm that the selected CPA API key has generated usage records.
 
-## 项目结构
+## Project Structure
 
 ```text
-Sources/CPAUsageMenuBar/    应用源码
-Tests/CPAUsageMenuBarTests/ 测试
-Resources/Info.plist        macOS 应用配置
-scripts/build-app.sh        Release 打包脚本
+Sources/CPAUsageMenuBar/    Application source code
+Tests/CPAUsageMenuBarTests/ Tests
+Resources/Info.plist        macOS app configuration
+scripts/build-app.sh        Release packaging script
 ```
 
 ## License
 
-本项目采用 [MIT License](./LICENSE)。
+This project is licensed under the [MIT License](./LICENSE).
