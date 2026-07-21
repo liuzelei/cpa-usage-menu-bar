@@ -4,8 +4,29 @@ protocol KeeperAPIClientProtocol: Sendable {
     func fetchOverview(
         configuration: AppConfiguration,
         credential: String,
-        range: UsageRange
+        range: UsageRange,
+        apiKeyID: String?
     ) async throws -> UsageSnapshot
+
+    func fetchAPIKeyOptions(
+        configuration: AppConfiguration,
+        credential: String
+    ) async throws -> [CPAAPIKeyOption]
+}
+
+extension KeeperAPIClientProtocol {
+    func fetchOverview(
+        configuration: AppConfiguration,
+        credential: String,
+        range: UsageRange
+    ) async throws -> UsageSnapshot {
+        try await fetchOverview(
+            configuration: configuration,
+            credential: credential,
+            range: range,
+            apiKeyID: nil
+        )
+    }
 }
 
 actor KeeperAPIClient: KeeperAPIClientProtocol {
@@ -18,6 +39,10 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
         let usage: Usage
         let summary: Summary?
         let timezone: String?
+    }
+
+    private struct APIKeyOptionsResponse: Decodable {
+        let options: [CPAAPIKeyOption]
     }
 
     private struct Usage: Decodable {
@@ -66,7 +91,8 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
     func fetchOverview(
         configuration: AppConfiguration,
         credential: String,
-        range: UsageRange
+        range: UsageRange,
+        apiKeyID: String?
     ) async throws -> UsageSnapshot {
         let context = AuthContext(baseURL: configuration.baseURL, authenticationType: configuration.authenticationType)
         if authenticatedContext != context {
@@ -75,13 +101,21 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
             authenticatedContext = context
         }
 
-        let first = try await overviewResponse(configuration: configuration, range: range)
+        let first = try await overviewResponse(
+            configuration: configuration,
+            range: range,
+            apiKeyID: apiKeyID
+        )
         if first.statusCode == 401 {
             authenticatedContext = nil
             sessionCookieHeader = nil
             try await login(configuration: configuration, credential: credential)
             authenticatedContext = context
-            let retried = try await overviewResponse(configuration: configuration, range: range)
+            let retried = try await overviewResponse(
+                configuration: configuration,
+                range: range,
+                apiKeyID: apiKeyID
+            )
             guard retried.statusCode != 401 else {
                 authenticatedContext = nil
                 throw AppError.authenticationFailed
@@ -89,6 +123,37 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
             return try decode(retried.data, response: retried.response, range: range)
         }
         return try decode(first.data, response: first.response, range: range)
+    }
+
+    func fetchAPIKeyOptions(
+        configuration: AppConfiguration,
+        credential: String
+    ) async throws -> [CPAAPIKeyOption] {
+        guard configuration.authenticationType == .administratorPassword else { return [] }
+        let context = AuthContext(
+            baseURL: configuration.baseURL,
+            authenticationType: configuration.authenticationType
+        )
+        if authenticatedContext != context {
+            sessionCookieHeader = nil
+            try await login(configuration: configuration, credential: credential)
+            authenticatedContext = context
+        }
+
+        let first = try await apiKeyOptionsResponse(configuration: configuration)
+        if first.response.statusCode == 401 {
+            authenticatedContext = nil
+            sessionCookieHeader = nil
+            try await login(configuration: configuration, credential: credential)
+            authenticatedContext = context
+            let retried = try await apiKeyOptionsResponse(configuration: configuration)
+            guard retried.response.statusCode != 401 else {
+                authenticatedContext = nil
+                throw AppError.authenticationFailed
+            }
+            return try decodeAPIKeyOptions(retried.data, response: retried.response)
+        }
+        return try decodeAPIKeyOptions(first.data, response: first.response)
     }
 
     private func login(configuration: AppConfiguration, credential: String) async throws {
@@ -126,13 +191,20 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
 
     private func overviewResponse(
         configuration: AppConfiguration,
-        range: UsageRange
+        range: UsageRange,
+        apiKeyID: String?
     ) async throws -> (data: Data, response: HTTPURLResponse, statusCode: Int) {
         let path = configuration.authenticationType == .administratorPassword
             ? "api/v1/usage/overview"
             : "api/v1/key-overview"
         var components = URLComponents(url: configuration.baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "range", value: range.rawValue)]
+        var queryItems = [URLQueryItem(name: "range", value: range.rawValue)]
+        if configuration.authenticationType == .administratorPassword,
+           let apiKeyID,
+           !apiKeyID.isEmpty {
+            queryItems.append(URLQueryItem(name: "api_key_id", value: apiKeyID))
+        }
+        components.queryItems = queryItems
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = 15
         if let sessionCookieHeader {
@@ -140,6 +212,19 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
         }
         let (data, response) = try await perform(request)
         return (data, response, response.statusCode)
+    }
+
+    private func apiKeyOptionsResponse(
+        configuration: AppConfiguration
+    ) async throws -> (data: Data, response: HTTPURLResponse) {
+        var request = URLRequest(
+            url: configuration.baseURL.appendingPathComponent("api/v1/usage/api-keys/options")
+        )
+        request.timeoutInterval = 15
+        if let sessionCookieHeader {
+            request.setValue(sessionCookieHeader, forHTTPHeaderField: "Cookie")
+        }
+        return try await perform(request)
     }
 
     private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -174,5 +259,24 @@ actor KeeperAPIClient: KeeperAPIClientProtocol {
             timezone: payload.timezone,
             refreshedAt: now()
         )
+    }
+
+    private func decodeAPIKeyOptions(
+        _ data: Data,
+        response: HTTPURLResponse
+    ) throws -> [CPAAPIKeyOption] {
+        switch response.statusCode {
+        case 200..<300:
+            do { return try JSONDecoder().decode(APIKeyOptionsResponse.self, from: data).options }
+            catch { throw AppError.incompatibleResponse }
+        case 404, 501:
+            return []
+        case 401:
+            throw AppError.authenticationFailed
+        case 403:
+            throw AppError.forbidden
+        default:
+            throw AppError.server(status: response.statusCode)
+        }
     }
 }

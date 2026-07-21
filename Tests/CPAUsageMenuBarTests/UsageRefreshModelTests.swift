@@ -22,10 +22,22 @@ private actor FakeKeeperAPI: KeeperAPIClientProtocol {
 
     init(results: [Result<UsageSnapshot, AppError>]) { self.results = results }
 
-    func fetchOverview(configuration: AppConfiguration, credential: String, range: UsageRange) async throws -> UsageSnapshot {
+    func fetchOverview(
+        configuration: AppConfiguration,
+        credential: String,
+        range: UsageRange,
+        apiKeyID: String?
+    ) async throws -> UsageSnapshot {
         ranges.append(range)
         guard !results.isEmpty else { throw AppError.serviceUnavailable }
         return try results.removeFirst().get()
+    }
+
+    func fetchAPIKeyOptions(
+        configuration: AppConfiguration,
+        credential: String
+    ) async throws -> [CPAAPIKeyOption] {
+        []
     }
 }
 

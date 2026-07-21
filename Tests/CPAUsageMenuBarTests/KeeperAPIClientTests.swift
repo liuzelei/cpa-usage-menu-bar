@@ -88,6 +88,90 @@ private func configuration(_ type: AuthenticationType) -> AppConfiguration {
 @Suite(.serialized)
 struct KeeperAPIClientTests {
     @Test
+    func administratorFetchesSafeAPIKeyOptions() async throws {
+        let body = Data("""
+        {"options":[{"id":"42","label":"Primary Key"},{"id":"84","label":"sk-*********abcd"}]}
+        """.utf8)
+        StubURLProtocol.reset([
+            .init(status: 204, headers: [:], body: Data()),
+            .init(status: 200, headers: [:], body: body)
+        ])
+
+        let options = try await makeClient().fetchAPIKeyOptions(
+            configuration: configuration(.administratorPassword),
+            credential: "secret"
+        )
+
+        #expect(options == [
+            CPAAPIKeyOption(id: "42", label: "Primary Key"),
+            CPAAPIKeyOption(id: "84", label: "sk-*********abcd")
+        ])
+        #expect(StubURLProtocol.requests.map { $0.url!.path } == [
+            "/api/v1/auth/login",
+            "/api/v1/usage/api-keys/options"
+        ])
+        #expect(StubURLProtocol.requests[1].httpBody == nil)
+    }
+
+    @Test
+    func unsupportedAPIKeyOptionsReturnEmptyList() async throws {
+        for status in [404, 501] {
+            StubURLProtocol.reset([
+                .init(status: 204, headers: [:], body: Data()),
+                .init(status: status, headers: [:], body: Data())
+            ])
+
+            let options = try await makeClient().fetchAPIKeyOptions(
+                configuration: configuration(.administratorPassword),
+                credential: "secret"
+            )
+
+            #expect(options.isEmpty)
+        }
+    }
+
+    @Test
+    func administratorOverviewIncludesSelectedAPIKeyID() async throws {
+        StubURLProtocol.reset([
+            .init(status: 204, headers: [:], body: Data()),
+            .init(status: 200, headers: [:], body: overviewJSON)
+        ])
+
+        _ = try await makeClient().fetchOverview(
+            configuration: configuration(.administratorPassword),
+            credential: "secret",
+            range: .last7Days,
+            apiKeyID: "42"
+        )
+
+        let components = try #require(
+            URLComponents(url: StubURLProtocol.requests[1].url!, resolvingAgainstBaseURL: false)
+        )
+        #expect(Set(components.queryItems ?? []) == Set([
+            URLQueryItem(name: "range", value: "7d"),
+            URLQueryItem(name: "api_key_id", value: "42")
+        ]))
+    }
+
+    @Test
+    func viewerOverviewNeverIncludesSelectedAPIKeyID() async throws {
+        StubURLProtocol.reset([
+            .init(status: 204, headers: [:], body: Data()),
+            .init(status: 200, headers: [:], body: overviewJSON)
+        ])
+
+        _ = try await makeClient().fetchOverview(
+            configuration: configuration(.cpaAPIKey),
+            credential: "key",
+            range: .last7Days,
+            apiKeyID: "42"
+        )
+
+        #expect(StubURLProtocol.requests[1].url?.path == "/api/v1/key-overview")
+        #expect(StubURLProtocol.requests[1].url?.query == "range=7d")
+    }
+
+    @Test
     func administratorUsesPasswordLoginAndAdminOverview() async throws {
         StubURLProtocol.reset([
             .init(status: 204, headers: ["Set-Cookie": "cpa_usage_keeper_session=session; Path=/; HttpOnly"], body: Data()),
