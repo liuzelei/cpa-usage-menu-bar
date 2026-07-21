@@ -218,6 +218,54 @@ func selectedKeyChangesOnlyPageSnapshotWhileMilestoneUsesAggregateToday() async 
 
 @MainActor
 @Test
+func failedUncachedKeySelectionKeepsVisibleSnapshot() async {
+    let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
+    let credentials = FakeCredentialStore(); credentials.value = "secret"
+    let api = FakeKeeperAPI(
+        results: [
+            .success(snapshot(tokens: 100_000_000, range: .today)),
+            .failure(.serviceUnavailable)
+        ],
+        optionResults: [.success([.init(id: "42", label: "Primary Key")])]
+    )
+    let model = UsageRefreshModel(preferences: preferences, credentials: credentials, api: api)
+
+    await model.refresh(force: true)
+    await model.selectAPIKey("42")
+
+    #expect(model.selectedSnapshot?.tokens == 100_000_000)
+    #expect(model.error == .serviceUnavailable)
+}
+
+@MainActor
+@Test
+func failedUncachedFilteredRangeKeepsVisibleSnapshot() async {
+    let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
+    let credentials = FakeCredentialStore(); credentials.value = "secret"
+    let api = FakeKeeperAPI(
+        results: [
+            .success(snapshot(tokens: 100_000_000, range: .today)),
+            .success(snapshot(tokens: 2_000_000, range: .today)),
+            .success(snapshot(tokens: 100_000_000, range: .today)),
+            .failure(.serviceUnavailable)
+        ],
+        optionResults: [
+            .success([.init(id: "42", label: "Primary Key")]),
+            .success([.init(id: "42", label: "Primary Key")])
+        ]
+    )
+    let model = UsageRefreshModel(preferences: preferences, credentials: credentials, api: api)
+
+    await model.refresh(force: true)
+    await model.selectAPIKey("42")
+    await model.selectRange(.last7Days)
+
+    #expect(model.selectedSnapshot?.tokens == 2_000_000)
+    #expect(model.error == .serviceUnavailable)
+}
+
+@MainActor
+@Test
 func missingSelectedKeyFallsBackToAggregateOnce() async {
     let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
     let credentials = FakeCredentialStore(); credentials.value = "secret"

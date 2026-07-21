@@ -118,9 +118,11 @@ final class UsageRefreshModel: ObservableObject {
 
     func selectRange(_ range: UsageRange) async {
         selectedRange = range
-        selectedSnapshot = snapshots[
+        if let snapshot = snapshots[
             SnapshotKey(range: range, apiKeyID: selectedAPIKeyID)
-        ]
+        ] {
+            selectedSnapshot = snapshot
+        }
         await refresh(force: true)
     }
 
@@ -129,9 +131,11 @@ final class UsageRefreshModel: ObservableObject {
         selectedAPIKeyID = id.flatMap { candidate in
             apiKeyOptions.contains(where: { $0.id == candidate }) ? candidate : nil
         }
-        selectedSnapshot = snapshots[
+        if let snapshot = snapshots[
             SnapshotKey(range: selectedRange, apiKeyID: selectedAPIKeyID)
-        ]
+        ] {
+            selectedSnapshot = snapshot
+        }
         guard let configuration,
               let credential = try? credentials.read(),
               !credential.isEmpty else { return }
