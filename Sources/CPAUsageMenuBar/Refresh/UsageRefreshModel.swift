@@ -128,6 +128,7 @@ final class UsageRefreshModel: ObservableObject {
 
     func selectAPIKey(_ id: String?) async {
         guard !isRefreshing else { return }
+        let shouldRecoverAuthentication = authenticationSuspended
         selectedAPIKeyID = id.flatMap { candidate in
             apiKeyOptions.contains(where: { $0.id == candidate }) ? candidate : nil
         }
@@ -135,6 +136,10 @@ final class UsageRefreshModel: ObservableObject {
             SnapshotKey(range: selectedRange, apiKeyID: selectedAPIKeyID)
         ] {
             selectedSnapshot = snapshot
+        }
+        if shouldRecoverAuthentication {
+            await refresh(force: true)
+            return
         }
         guard let configuration,
               let credential = try? credentials.read(),

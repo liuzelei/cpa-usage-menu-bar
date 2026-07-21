@@ -239,6 +239,41 @@ func failedUncachedKeySelectionKeepsVisibleSnapshot() async {
 
 @MainActor
 @Test
+func aggregateSelectionRecoversAuthenticationSuspensionAndRestoresScheduledRefreshes() async {
+    let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
+    let credentials = FakeCredentialStore(); credentials.value = "secret"
+    let api = FakeKeeperAPI(
+        results: [
+            .success(snapshot(tokens: 100, range: .today)),
+            .failure(.authenticationFailed),
+            .success(snapshot(tokens: 200, range: .today)),
+            .success(snapshot(tokens: 300, range: .today))
+        ],
+        optionResults: [
+            .success([.init(id: "42", label: "Primary Key")]),
+            .success([.init(id: "42", label: "Primary Key")]),
+            .success([.init(id: "42", label: "Primary Key")])
+        ]
+    )
+    let model = UsageRefreshModel(preferences: preferences, credentials: credentials, api: api)
+
+    await model.refresh(force: true)
+    await model.selectAPIKey("42")
+    await model.selectAPIKey(nil)
+    await model.refresh(force: false)
+
+    #expect(model.error == nil)
+    #expect(model.todaySnapshot?.tokens == 300)
+    #expect(await api.recordedOverviewCalls() == [
+        .init(range: .today, apiKeyID: nil),
+        .init(range: .today, apiKeyID: "42"),
+        .init(range: .today, apiKeyID: nil),
+        .init(range: .today, apiKeyID: nil)
+    ])
+}
+
+@MainActor
+@Test
 func failedUncachedFilteredRangeKeepsVisibleSnapshot() async {
     let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
     let credentials = FakeCredentialStore(); credentials.value = "secret"

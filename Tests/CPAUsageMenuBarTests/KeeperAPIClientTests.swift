@@ -154,6 +154,26 @@ struct KeeperAPIClientTests {
     }
 
     @Test
+    func administratorAggregateOverviewOmitsAPIKeyID() async throws {
+        StubURLProtocol.reset([
+            .init(status: 204, headers: [:], body: Data()),
+            .init(status: 200, headers: [:], body: overviewJSON)
+        ])
+
+        _ = try await makeClient().fetchOverview(
+            configuration: configuration(.administratorPassword),
+            credential: "secret",
+            range: .last7Days,
+            apiKeyID: nil
+        )
+
+        let components = try #require(
+            URLComponents(url: StubURLProtocol.requests[1].url!, resolvingAgainstBaseURL: false)
+        )
+        #expect(components.queryItems == [URLQueryItem(name: "range", value: "7d")])
+    }
+
+    @Test
     func viewerOverviewNeverIncludesSelectedAPIKeyID() async throws {
         StubURLProtocol.reset([
             .init(status: 204, headers: [:], body: Data()),
