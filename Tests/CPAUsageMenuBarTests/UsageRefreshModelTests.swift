@@ -17,10 +17,23 @@ private final class FakeCredentialStore: CredentialStoring {
 }
 
 private actor FakeKeeperAPI: KeeperAPIClientProtocol {
-    var results: [Result<UsageSnapshot, AppError>]
-    var ranges: [UsageRange] = []
+    struct OverviewCall: Equatable {
+        let range: UsageRange
+        let apiKeyID: String?
+    }
 
-    init(results: [Result<UsageSnapshot, AppError>]) { self.results = results }
+    var results: [Result<UsageSnapshot, AppError>]
+    var optionResults: [Result<[CPAAPIKeyOption], AppError>]
+    private(set) var overviewCalls: [OverviewCall] = []
+    private(set) var optionCallCount = 0
+
+    init(
+        results: [Result<UsageSnapshot, AppError>],
+        optionResults: [Result<[CPAAPIKeyOption], AppError>] = []
+    ) {
+        self.results = results
+        self.optionResults = optionResults
+    }
 
     func fetchOverview(
         configuration: AppConfiguration,
@@ -28,7 +41,7 @@ private actor FakeKeeperAPI: KeeperAPIClientProtocol {
         range: UsageRange,
         apiKeyID: String?
     ) async throws -> UsageSnapshot {
-        ranges.append(range)
+        overviewCalls.append(.init(range: range, apiKeyID: apiKeyID))
         guard !results.isEmpty else { throw AppError.serviceUnavailable }
         return try results.removeFirst().get()
     }
@@ -37,8 +50,13 @@ private actor FakeKeeperAPI: KeeperAPIClientProtocol {
         configuration: AppConfiguration,
         credential: String
     ) async throws -> [CPAAPIKeyOption] {
-        []
+        optionCallCount += 1
+        guard !optionResults.isEmpty else { return [] }
+        return try optionResults.removeFirst().get()
     }
+
+    func recordedOverviewCalls() -> [OverviewCall] { overviewCalls }
+    func recordedOptionCallCount() -> Int { optionCallCount }
 }
 
 private final class FakeMilestoneTracker: MilestoneTracking {
@@ -110,6 +128,155 @@ private let refreshSnapshot = UsageSnapshot(
     timezone: "Asia/Shanghai",
     refreshedAt: Date(timeIntervalSince1970: 100)
 )
+
+private func snapshot(tokens: Int64, range: UsageRange) -> UsageSnapshot {
+    .init(
+        requests: 1,
+        successes: 1,
+        failures: 0,
+        tokens: tokens,
+        cost: nil,
+        range: range,
+        timezone: nil,
+        refreshedAt: .now
+    )
+}
+
+@MainActor
+@Test
+func administratorLoadsOptionsAndDefaultsToAggregateUsage() async {
+    let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
+    let credentials = FakeCredentialStore(); credentials.value = "secret"
+    let api = FakeKeeperAPI(
+        results: [.success(refreshSnapshot)],
+        optionResults: [.success([.init(id: "42", label: "Primary Key")])]
+    )
+    let model = UsageRefreshModel(preferences: preferences, credentials: credentials, api: api)
+
+    await model.refresh(force: true)
+
+    #expect(model.apiKeyOptions == [.init(id: "42", label: "Primary Key")])
+    #expect(model.selectedAPIKeyID == nil)
+    #expect(model.isAPIKeyFilterAvailable)
+    #expect(await api.recordedOverviewCalls() == [.init(range: .today, apiKeyID: nil)])
+}
+
+@MainActor
+@Test
+func apiKeyViewerNeverLoadsAdministratorOptions() async {
+    let viewer = AppConfiguration(
+        baseURL: refreshConfiguration.baseURL,
+        authenticationType: .cpaAPIKey,
+        refreshInterval: 60,
+        menuBarMetric: .tokens,
+        launchAtLogin: false
+    )
+    let preferences = FakePreferencesStore(); preferences.value = viewer
+    let credentials = FakeCredentialStore(); credentials.value = "viewer-key"
+    let api = FakeKeeperAPI(results: [.success(refreshSnapshot)])
+    let model = UsageRefreshModel(preferences: preferences, credentials: credentials, api: api)
+
+    await model.refresh(force: true)
+
+    #expect(await api.recordedOptionCallCount() == 0)
+    #expect(!model.isAPIKeyFilterAvailable)
+}
+
+@MainActor
+@Test
+func selectedKeyChangesOnlyPageSnapshotWhileMilestoneUsesAggregateToday() async {
+    let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
+    let credentials = FakeCredentialStore(); credentials.value = "secret"
+    let tracker = FakeMilestoneTracker()
+    let api = FakeKeeperAPI(
+        results: [
+            .success(snapshot(tokens: 100_000_000, range: .today)),
+            .success(snapshot(tokens: 2_000_000, range: .today))
+        ],
+        optionResults: [.success([.init(id: "42", label: "Primary Key")])]
+    )
+    let model = UsageRefreshModel(
+        preferences: preferences,
+        credentials: credentials,
+        api: api,
+        milestoneTracker: tracker,
+        milestoneStateStore: FakeMilestoneStateStore(),
+        celebrationCoordinator: FakeCelebrationCoordinator()
+    )
+
+    await model.refresh(force: true)
+    await model.selectAPIKey("42")
+
+    #expect(model.todaySnapshot?.tokens == 100_000_000)
+    #expect(model.selectedSnapshot?.tokens == 2_000_000)
+    #expect(tracker.observations.map(\.tokens) == [100_000_000])
+    #expect(await api.recordedOverviewCalls() == [
+        .init(range: .today, apiKeyID: nil),
+        .init(range: .today, apiKeyID: "42")
+    ])
+}
+
+@MainActor
+@Test
+func missingSelectedKeyFallsBackToAggregateOnce() async {
+    let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
+    let credentials = FakeCredentialStore(); credentials.value = "secret"
+    let api = FakeKeeperAPI(
+        results: [
+            .success(refreshSnapshot),
+            .success(refreshSnapshot),
+            .success(snapshot(tokens: 8_000, range: .last7Days)),
+            .failure(.server(status: 404)),
+            .success(snapshot(tokens: 9_000, range: .last7Days))
+        ],
+        optionResults: [
+            .success([.init(id: "42", label: "Primary Key")]),
+            .success([.init(id: "42", label: "Primary Key")])
+        ]
+    )
+    let model = UsageRefreshModel(preferences: preferences, credentials: credentials, api: api)
+
+    await model.refresh(force: true)
+    await model.selectRange(.last7Days)
+    await model.selectAPIKey("42")
+
+    #expect(model.selectedAPIKeyID == nil)
+    #expect(model.selectedSnapshot?.tokens == 9_000)
+    #expect(await api.recordedOverviewCalls().suffix(2) == [
+        .init(range: .last7Days, apiKeyID: "42"),
+        .init(range: .last7Days, apiKeyID: nil)
+    ])
+}
+
+@MainActor
+@Test
+func savingChangedIdentityResetsKeySelection() async throws {
+    let preferences = FakePreferencesStore(); preferences.value = refreshConfiguration
+    let credentials = FakeCredentialStore(); credentials.value = "secret"
+    let api = FakeKeeperAPI(
+        results: [
+            .success(refreshSnapshot),
+            .success(refreshSnapshot),
+            .success(refreshSnapshot)
+        ],
+        optionResults: [.success([.init(id: "42", label: "Primary Key")])]
+    )
+    let model = UsageRefreshModel(preferences: preferences, credentials: credentials, api: api)
+
+    await model.refresh(force: true)
+    await model.selectAPIKey("42")
+    let changed = AppConfiguration(
+        baseURL: URL(string: "https://other-keeper.example")!,
+        authenticationType: .administratorPassword,
+        refreshInterval: 60,
+        menuBarMetric: .tokens,
+        launchAtLogin: false
+    )
+    try await model.validateAndSave(configuration: changed, credential: "new-secret")
+
+    #expect(model.selectedAPIKeyID == nil)
+    #expect(model.apiKeyOptions.isEmpty)
+}
 
 @MainActor
 @Test

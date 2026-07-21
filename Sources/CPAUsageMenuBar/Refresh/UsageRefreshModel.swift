@@ -1,6 +1,11 @@
 import Combine
 import Foundation
 
+private struct SnapshotKey: Hashable {
+    let range: UsageRange
+    let apiKeyID: String?
+}
+
 @MainActor
 final class UsageRefreshModel: ObservableObject {
     @Published private(set) var configuration: AppConfiguration?
@@ -9,6 +14,8 @@ final class UsageRefreshModel: ObservableObject {
     @Published private(set) var todaySnapshot: UsageSnapshot?
     @Published private(set) var isRefreshing = false
     @Published private(set) var error: AppError?
+    @Published private(set) var apiKeyOptions: [CPAAPIKeyOption] = []
+    @Published private(set) var selectedAPIKeyID: String?
 
     private let preferences: PreferencesStoring
     private let credentials: CredentialStoring
@@ -19,7 +26,7 @@ final class UsageRefreshModel: ObservableObject {
     private let celebrationCoordinator: any CelebrationCoordinating
     private var timer: Timer?
     private var celebrationStateRefreshTask: Task<Void, Never>?
-    private var snapshots: [UsageRange: UsageSnapshot] = [:]
+    private var snapshots: [SnapshotKey: UsageSnapshot] = [:]
     private var authenticationSuspended = false
 
     init(
@@ -50,6 +57,10 @@ final class UsageRefreshModel: ObservableObject {
 
     var isCelebrationPresenting: Bool { celebrationCoordinator.isPresenting }
 
+    var isAPIKeyFilterAvailable: Bool {
+        configuration?.authenticationType == .administratorPassword && !apiKeyOptions.isEmpty
+    }
+
     func start() {
         stop()
         guard let configuration else { return }
@@ -79,17 +90,22 @@ final class UsageRefreshModel: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
         do {
-            let today = try await api.fetchOverview(configuration: configuration, credential: credential, range: .today)
-            snapshots[.today] = today
+            let today = try await api.fetchOverview(
+                configuration: configuration,
+                credential: credential,
+                range: .today,
+                apiKeyID: nil
+            )
+            let aggregateKey = SnapshotKey(range: .today, apiKeyID: nil)
+            snapshots[aggregateKey] = today
             todaySnapshot = today
             observeMilestone(tokens: today.tokens, configuration: configuration)
-            if selectedRange == .today {
-                selectedSnapshot = today
-            } else {
-                let selected = try await api.fetchOverview(configuration: configuration, credential: credential, range: selectedRange)
-                snapshots[selectedRange] = selected
-                selectedSnapshot = selected
-            }
+            try await refreshAPIKeyOptions(configuration: configuration, credential: credential)
+            try await refreshSelectedSnapshot(
+                configuration: configuration,
+                credential: credential,
+                aggregateToday: today
+            )
             error = nil
             authenticationSuspended = false
         } catch let appError as AppError {
@@ -102,8 +118,39 @@ final class UsageRefreshModel: ObservableObject {
 
     func selectRange(_ range: UsageRange) async {
         selectedRange = range
-        selectedSnapshot = snapshots[range]
+        selectedSnapshot = snapshots[
+            SnapshotKey(range: range, apiKeyID: selectedAPIKeyID)
+        ]
         await refresh(force: true)
+    }
+
+    func selectAPIKey(_ id: String?) async {
+        guard !isRefreshing else { return }
+        selectedAPIKeyID = id.flatMap { candidate in
+            apiKeyOptions.contains(where: { $0.id == candidate }) ? candidate : nil
+        }
+        selectedSnapshot = snapshots[
+            SnapshotKey(range: selectedRange, apiKeyID: selectedAPIKeyID)
+        ]
+        guard let configuration,
+              let credential = try? credentials.read(),
+              !credential.isEmpty else { return }
+
+        isRefreshing = true
+        defer { isRefreshing = false }
+        do {
+            try await refreshSelectedSnapshot(
+                configuration: configuration,
+                credential: credential,
+                aggregateToday: todaySnapshot
+            )
+            error = nil
+        } catch let appError as AppError {
+            error = appError
+            if appError == .authenticationFailed { authenticationSuspended = true }
+        } catch {
+            self.error = .serviceUnavailable
+        }
     }
 
     func validateAndSave(configuration candidate: AppConfiguration, credential candidateCredential: String) async throws {
@@ -130,7 +177,10 @@ final class UsageRefreshModel: ObservableObject {
             || oldConfiguration?.authenticationType != candidate.authenticationType {
             requireMilestoneBaseline()
         }
-        snapshots = [.today: validated]
+        apiKeyOptions = []
+        selectedAPIKeyID = nil
+        let aggregateKey = SnapshotKey(range: .today, apiKeyID: nil)
+        snapshots = [aggregateKey: validated]
         todaySnapshot = validated
         selectedRange = .today
         selectedSnapshot = validated
@@ -175,6 +225,66 @@ final class UsageRefreshModel: ObservableObject {
         if let milestone {
             celebrationCoordinator.celebrate(milestone, configuration: configuration)
             refreshCelebrationPresentationState(after: 5.1)
+        }
+    }
+
+    private func refreshAPIKeyOptions(
+        configuration: AppConfiguration,
+        credential: String
+    ) async throws {
+        guard configuration.authenticationType == .administratorPassword else {
+            apiKeyOptions = []
+            selectedAPIKeyID = nil
+            return
+        }
+        let options = try await api.fetchAPIKeyOptions(
+            configuration: configuration,
+            credential: credential
+        )
+        apiKeyOptions = options
+        if let selectedAPIKeyID,
+           !options.contains(where: { $0.id == selectedAPIKeyID }) {
+            self.selectedAPIKeyID = nil
+        }
+    }
+
+    private func refreshSelectedSnapshot(
+        configuration: AppConfiguration,
+        credential: String,
+        aggregateToday: UsageSnapshot?
+    ) async throws {
+        let selectedID = selectedAPIKeyID
+        let key = SnapshotKey(range: selectedRange, apiKeyID: selectedID)
+        if selectedRange == .today, selectedID == nil, let aggregateToday {
+            snapshots[key] = aggregateToday
+            selectedSnapshot = aggregateToday
+            return
+        }
+        do {
+            let value = try await api.fetchOverview(
+                configuration: configuration,
+                credential: credential,
+                range: selectedRange,
+                apiKeyID: selectedID
+            )
+            snapshots[key] = value
+            selectedSnapshot = value
+        } catch AppError.server(status: 404) where selectedID != nil {
+            selectedAPIKeyID = nil
+            let fallbackKey = SnapshotKey(range: selectedRange, apiKeyID: nil)
+            if selectedRange == .today, let aggregateToday {
+                snapshots[fallbackKey] = aggregateToday
+                selectedSnapshot = aggregateToday
+                return
+            }
+            let fallback = try await api.fetchOverview(
+                configuration: configuration,
+                credential: credential,
+                range: selectedRange,
+                apiKeyID: nil
+            )
+            snapshots[fallbackKey] = fallback
+            selectedSnapshot = fallback
         }
     }
 
