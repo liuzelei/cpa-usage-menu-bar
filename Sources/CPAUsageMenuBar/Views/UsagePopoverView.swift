@@ -50,6 +50,24 @@ struct UsagePopoverView: View {
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if let authenticationType = model.configuration?.authenticationType {
+                let items = APIKeyFilterPresentation.items(
+                    authenticationType: authenticationType,
+                    options: model.apiKeyOptions
+                )
+                if !items.isEmpty {
+                    Picker("API Key", selection: Binding(
+                        get: { model.selectedAPIKeyID },
+                        set: { id in Task { await model.selectAPIKey(id) } }
+                    )) {
+                        ForEach(items) { item in
+                            Text(item.title).tag(item.apiKeyID)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+
             Picker("时间范围", selection: Binding(
                 get: { model.selectedRange },
                 set: { range in Task { await model.selectRange(range) } }
