@@ -9,6 +9,7 @@ A lightweight native macOS menu bar app for monitoring usage from a single [CPA 
 - Show today's token count, cost, request count, or an icon only in the menu bar.
 - View request count, tokens, cost, and success rate in a native popover.
 - Switch between Today, Last 24 Hours, 7 Days, and 30 Days.
+- Let administrators filter popover usage by a specific CPA API key while keeping menu bar metrics and milestone celebrations based on aggregate usage.
 - Authenticate with either a Keeper admin key or a CPA API key.
 - Configure the Keeper URL, refresh interval, menu bar metric, and launch at login.
 - Store passwords and API keys exclusively in macOS Keychain.
@@ -129,6 +130,7 @@ Sound is disabled by default. When enabled, it plays once per celebration rather
 Click the icon or value in the menu bar to open the summary popover:
 
 - Switch between Today, 24 Hours, 7 Days, and 30 Days.
+- When signed in with a Keeper admin key, select **All Usage** or a specific CPA API key from the Key picker. Older Keeper versions that do not support Key options simply hide this picker.
 - View request count, tokens, cost, and success rate.
 - Click the refresh button to update data immediately.
 - Click **Open Dashboard** to open the full Keeper dashboard in your default browser.
