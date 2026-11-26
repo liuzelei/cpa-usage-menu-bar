@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: yungor-ai/yungor-keydock-connect
-          ref: 89896c3f3b4d68c46fe2b6b55c1d1d0cd0e263b4
+          ref: 1afb4f399eae63c77cd4659694b270745e5ef133
           persist-credentials: false
           path: keydock-connect
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
@@ -27,7 +27,7 @@ jobs:
         working-directory: keydock-connect
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = 89896c3f3b4d68c46fe2b6b55c1d1d0cd0e263b4
+          test "$(git rev-parse HEAD)" = 1afb4f399eae63c77cd4659694b270745e5ef133
           test "$(cat VERSION)" = 0.4.2
       - name: Build and sign the KeyDock Apple Silicon DMG
         working-directory: keydock-connect
