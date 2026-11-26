@@ -29,22 +29,18 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = 6f2822448fcd246508e4a9981d7b0e9620539dad
           test "$(cat VERSION)" = 0.4.0
-      - name: Sign and notarize the KeyDock Apple Silicon DMG
+      - name: Build and sign the KeyDock Apple Silicon DMG
         working-directory: keydock-connect
         shell: bash
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           umask 077
           scratch=$(mktemp -d "$RUNNER_TEMP/keydock-connect-signing.XXXXXX")
           keychain="$scratch/release.keychain-db"
           certificate="$scratch/developer-id.p12"
-          profile=keydock-connect-release
           cleanup() {
             security delete-keychain "$keychain" >/dev/null 2>&1 || true
             rm -rf -- "$scratch"
@@ -52,9 +48,6 @@ jobs:
           trap cleanup EXIT
 
           : "${APPLE_CERTIFICATE_BASE64:?Developer ID certificate secret is missing}"
-          : "${APPLE_ID:?Apple Account secret is missing}"
-          : "${APPLE_APP_SPECIFIC_PASSWORD:?Apple app-specific password secret is missing}"
-          test "${APPLE_TEAM_ID:?Apple Team ID secret is missing}" = Y29QZHZ797
           printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 -D > "$certificate"
           keychain_password=$(openssl rand -hex 24)
           security create-keychain -p "$keychain_password" "$keychain"
@@ -69,20 +62,31 @@ jobs:
             echo 'Expected one Developer ID Application identity from the Connect signing team.' >&2
             exit 1
           fi
-          xcrun notarytool store-credentials "$profile" --keychain "$keychain" \
-            --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" >/dev/null
           rm -f -- "$certificate"
-          unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID keychain_password
+          unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD keychain_password
 
-          KEYDOCK_CODESIGN_IDENTITY="$identity" KEYDOCK_NOTARY_PROFILE="$profile" KEYDOCK_NOTARY_KEYCHAIN="$keychain" \
-            bash packaging/build-macos.sh
+          bash packaging/build-macos.sh
           app='dist/macos/KeyDock Connect.app'
           dmg='dist/macos/KeyDockConnect-macos-arm64.dmg'
+          core="$app/Contents/Helpers/mihomo"
+          signing=(--force --sign "$identity" --keychain "$keychain" --timestamp)
+          codesign "${signing[@]}" --options runtime --identifier ai.yungor.keydock-connect.mihomo "$core"
+          codesign --verify --strict "$core"
+          checksum=$(shasum -a 256 "$core")
+          export MACOSX_DEPLOYMENT_TARGET=13.0
+          export CGO_CFLAGS="${CGO_CFLAGS:--O2 -g} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -trimpath \
+            -ldflags "-s -w -X github.com/yungor-ai/yungor-keydock-connect/internal/proxy.coreDigest=${checksum%% *}" \
+            -o "$app/Contents/MacOS/KeyDockConnect" ./cmd/keydock-connect
+          codesign "${signing[@]}" --options runtime "$app"
           codesign --verify --deep --strict "$app"
           [[ $(codesign -dv --verbose=4 "$app" 2>&1 | awk -F= '$1 == "TeamIdentifier" {print $2}') == Y29QZHZ797 ]]
-          xcrun stapler validate "$dmg"
-          spctl --assess --type open --context context:primary-signature "$dmg"
-          (cd dist/macos && shasum -a 256 -c SHA256SUMS.txt)
+          mkdir "$scratch/image"
+          ditto "$app" "$scratch/image/KeyDock Connect.app"
+          ln -s /Applications "$scratch/image/Applications"
+          hdiutil create -quiet -ov -volname 'KeyDock Connect' -srcfolder "$scratch/image" -format UDZO -fs HFS+ "$dmg"
+          codesign "${signing[@]}" --identifier ai.yungor.keydock-connect.disk-image "$dmg"
+          codesign --verify --strict "$dmg"
       - name: Test with the signed bundled Mihomo
         working-directory: keydock-connect
         shell: bash
@@ -91,6 +95,31 @@ jobs:
           checksum=$(shasum -a 256 "$core")
           KEYDOCK_TEST_CORE="$core" KEYDOCK_PROFILE_CORE="$core" KEYDOCK_GEO_DIR="$(dirname "$core")" go test -race -count=1 \
             -ldflags "-X github.com/yungor-ai/yungor-keydock-connect/internal/proxy.coreDigest=${checksum%% *}" ./internal/proxy
+      - name: Submit the signed DMG to the Apple notary service
+        working-directory: keydock-connect
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test "${APPLE_TEAM_ID:?Apple Team ID secret is missing}" = Y29QZHZ797
+          dmg='dist/macos/KeyDockConnect-macos-arm64.dmg'
+          report="$RUNNER_TEMP/keydock-connect-notary.json"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json > "$report"
+          status=$(plutil -extract status raw -o - "$report")
+          if [[ "$status" != Accepted ]]; then
+            echo "Apple notarization status: $status" >&2
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          codesign --verify --strict "$dmg"
+          hdiutil verify -quiet "$dmg"
+          spctl --assess --type open --context context:primary-signature "$dmg"
+          (cd dist/macos && shasum -a 256 KeyDockConnect-macos-arm64.dmg > SHA256SUMS.txt)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: KeyDockConnect-v0.4.0-macos-arm64-notarized
