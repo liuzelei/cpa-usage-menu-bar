@@ -1,9 +1,9 @@
-name: Sign KeyDock Connect v0.4.0
+name: Sign KeyDock Connect v0.4.1
 
 on:
   push:
-    branches: ["release-sign/keydock-connect-v0.4.0"]
-    paths: [".github/workflows/keydock-connect-040-sign.yml"]
+    branches: ["release-sign/keydock-connect-v0.4.1"]
+    paths: [".github/workflows/keydock-connect-041-sign.yml"]
 
 permissions:
   contents: read
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: yungor-ai/yungor-keydock-connect
-          ref: 6f2822448fcd246508e4a9981d7b0e9620539dad
+          ref: 710b82147af109a9753cacaed4e08920466c9b0a
           persist-credentials: false
           path: keydock-connect
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
@@ -27,8 +27,8 @@ jobs:
         working-directory: keydock-connect
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = 6f2822448fcd246508e4a9981d7b0e9620539dad
-          test "$(cat VERSION)" = 0.4.0
+          test "$(git rev-parse HEAD)" = 710b82147af109a9753cacaed4e08920466c9b0a
+          test "$(cat VERSION)" = 0.4.1
       - name: Build and sign the KeyDock Apple Silicon DMG
         working-directory: keydock-connect
         shell: bash
@@ -122,7 +122,7 @@ jobs:
           (cd dist/macos && shasum -a 256 KeyDockConnect-macos-arm64.dmg > SHA256SUMS.txt)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: KeyDockConnect-v0.4.0-macos-arm64-notarized
+          name: KeyDockConnect-v0.4.1-macos-arm64-notarized
           path: |
             keydock-connect/dist/macos/KeyDockConnect-macos-arm64.dmg
             keydock-connect/dist/macos/SHA256SUMS.txt
